@@ -117,35 +117,33 @@ impl Parser {
 type Sections = Vec<(bool, Vec<u8>)>;
 
 fn file2secs(filename: &str, escc: u8) -> Sections {
-    {
-        let mut parser = Parser::new(escc);
-        let sectr = |section: Vec<u8>| {
-            assert!(!section.is_empty());
-            if *section.first().unwrap() == escc {
-                (true, section[2..section.len() - 1].to_vec())
-            } else {
-                (false, section)
-            }
-        };
-        type SlcfnT = Box<dyn FnOnce(&mut Parser) -> Vec<Vec<u8>>>;
-        let per_slicefn = |fnx: SlcfnT| {
-            let parts: Sections = fnx(&mut parser).into_iter().map(sectr).collect();
-            parts
-        };
-        let fsf = std::fs::File::open(filename);
-        let cls: Vec<SlcfnT> = vec![
-            Box::new(|parser| {
-                parser.feed(
-                    readfilez::read_from_file(fsf)
-                        .expect("unable to open file")
-                        .get_slice(),
-                )
-            }),
-            Box::new(|parser| parser.finish().expect("unexpected EOF")),
-        ];
+    let mut parser = Parser::new(escc);
+    type SlcfnT = Box<dyn FnOnce(&mut Parser) -> Vec<Vec<u8>>>;
+    let fsf = std::fs::File::open(filename);
+    let cls: Vec<SlcfnT> = vec![
+        Box::new(|parser| {
+            parser.feed(
+                readfilez::read_from_file(fsf)
+                    .expect("unable to open file")
+                    .get_slice(),
+            )
+        }),
+        Box::new(|parser| parser.finish().expect("unexpected EOF")),
+    ];
 
-        cls.into_iter().map(per_slicefn).flatten().collect()
-    }
+    cls.into_iter()
+        .map(|fnx: SlcfnT| {
+            fnx(&mut parser).into_iter().map(|section: Vec<u8>| {
+                assert!(!section.is_empty());
+                if *section.first().unwrap() == escc {
+                    (true, section[2..section.len() - 1].to_vec())
+                } else {
+                    (false, section)
+                }
+            })
+        })
+        .flatten()
+        .collect()
 }
 
 fn main() {
