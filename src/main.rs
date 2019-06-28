@@ -10,7 +10,7 @@ fn errmsg(s: &str) {
     }
 }
 
-enum ParserMode {
+enum LLParserMode {
     Normal,
     CmdN(u32),
 }
@@ -40,16 +40,16 @@ impl<T> TwoVec<T> {
     }
 }
 
-pub struct Parser {
-    pm: ParserMode,
+pub struct LLParser {
+    pm: LLParserMode,
     secs: TwoVec<u8>,
     escc: u8,
 }
 
-impl Parser {
+impl LLParser {
     pub fn new(escc: u8) -> Self {
         Self {
-            pm: ParserMode::Normal,
+            pm: LLParserMode::Normal,
             secs: TwoVec::new(),
             escc,
         }
@@ -58,12 +58,12 @@ impl Parser {
     pub fn finish(&mut self) -> std::io::Result<Vec<Vec<u8>>> {
         use std::io;
         self.secs.up_push();
-        if let ParserMode::Normal = self.pm {
+        if let LLParserMode::Normal = self.pm {
             Ok(std::mem::replace(&mut self.secs.parts, vec![]))
         } else {
             Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
-                "Parser::finish",
+                "LLParser::finish",
             ))
         }
     }
@@ -73,7 +73,7 @@ impl Parser {
         // as long as the parts starting with ESCC '(' ( and ending with ')')
         // are valid utf8
         for &i in input.iter() {
-            use ParserMode::*;
+            use LLParserMode::*;
             match self.pm {
                 Normal => {
                     if i == self.escc {
@@ -117,24 +117,23 @@ impl Parser {
 type Sections = Vec<(bool, Vec<u8>)>;
 
 fn file2secs(filename: &str, escc: u8) -> Sections {
-    let mut parser = Parser::new(escc);
-    type SlcfnT = Box<dyn FnOnce(&mut Parser, &mut std::fs::File) -> Vec<Vec<u8>>>;
-    let mut fsf = std::fs::File::open(filename).expect("unable to open file");
-    let cls: Vec<SlcfnT> = vec![
-        Box::new(|parser, mut fsf| {
-            let lns = readfilez::LengthSpec::new(None, true);
-            parser.feed(
-                readfilez::read_part_from_file(&mut fsf, 0, lns)
-                    .expect("unable to open file")
-                    .get_slice(),
+    let mut parser = LLParser::new(escc);
+    let filename = filename.to_owned();
+    let cls: Vec<Box<dyn FnOnce(&mut LLParser) -> Vec<Vec<u8>>>> = vec![
+        Box::new(|parser| {
+            readfilez::ContinuableFile::new(
+                std::fs::File::open(filename).expect("unable to open file"),
             )
+            .to_chunks(readfilez::LengthSpec::new(None, true))
+            .map(|i| parser.feed(i.expect("unable to read file").get_slice()))
+            .flatten()
+            .collect()
         }),
-        Box::new(|parser, _fsf| parser.finish().expect("unexpected EOF")),
+        Box::new(|parser| parser.finish().expect("unexpected EOF")),
     ];
-
     cls.into_iter()
-        .map(|fnx: SlcfnT| {
-            fnx(&mut parser, &mut fsf).into_iter().map(|section: Vec<u8>| {
+        .map(|fnx| {
+            fnx(&mut parser).into_iter().map(|section: Vec<u8>| {
                 assert!(!section.is_empty());
                 if *section.first().unwrap() == escc {
                     (true, section[2..section.len() - 1].to_vec())
