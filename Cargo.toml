@@ -1,0 +1,8 @@
+[package]
+name = "crulz"
+version = "0.0.1"
+authors = ["Erik Zscheile <erik.zscheile@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+readfilez = "0.1"
