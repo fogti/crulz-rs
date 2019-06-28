@@ -118,22 +118,23 @@ type Sections = Vec<(bool, Vec<u8>)>;
 
 fn file2secs(filename: &str, escc: u8) -> Sections {
     let mut parser = Parser::new(escc);
-    type SlcfnT = Box<dyn FnOnce(&mut Parser) -> Vec<Vec<u8>>>;
-    let fsf = std::fs::File::open(filename);
+    type SlcfnT = Box<dyn FnOnce(&mut Parser, &mut std::fs::File) -> Vec<Vec<u8>>>;
+    let mut fsf = std::fs::File::open(filename).expect("unable to open file");
     let cls: Vec<SlcfnT> = vec![
-        Box::new(|parser| {
+        Box::new(|parser, mut fsf| {
+            let lns = readfilez::LengthSpec::new(None, true);
             parser.feed(
-                readfilez::read_from_file(fsf)
+                readfilez::read_part_from_file(&mut fsf, 0, lns)
                     .expect("unable to open file")
                     .get_slice(),
             )
         }),
-        Box::new(|parser| parser.finish().expect("unexpected EOF")),
+        Box::new(|parser, _fsf| parser.finish().expect("unexpected EOF")),
     ];
 
     cls.into_iter()
         .map(|fnx: SlcfnT| {
-            fnx(&mut parser).into_iter().map(|section: Vec<u8>| {
+            fnx(&mut parser, &mut fsf).into_iter().map(|section: Vec<u8>| {
                 assert!(!section.is_empty());
                 if *section.first().unwrap() == escc {
                     (true, section[2..section.len() - 1].to_vec())
