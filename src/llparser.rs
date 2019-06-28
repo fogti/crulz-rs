@@ -104,6 +104,28 @@ impl LLParser {
     }
 }
 
+pub trait IsSpace {
+    fn is_space(self) -> bool;
+}
+
+impl IsSpace for u8 {
+    fn is_space(self) -> bool {
+        match self {
+            9 | 10 | 11 | 12 | 13 | 32 => true,
+            _ => false,
+        }
+    }
+}
+
+impl IsSpace for char {
+    fn is_space(self) -> bool {
+        match self {
+            '\t' | '\n' | '\x0b' | '\x0c' | '\r' | ' ' => true,
+            _ => false,
+        }
+    }
+}
+
 type Sections = Vec<(bool, Vec<u8>)>;
 
 pub fn file2secs(filename: &str, escc: u8) -> Sections {
