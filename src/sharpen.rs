@@ -30,44 +30,58 @@ impl<T> TwoVec<T> {
     }
 }
 
-// This function splits the input at every change of the return value of fnx
-// signature of fnx := fn fnx(ccl: u32, curc: u8) -> u32 (new ccl)
-// This function is a special variant of the TwoVec methods
-pub fn classify<'a, InT, FnT, TC, TT>(input: InT, fnx: FnT, start_ccl: TC) -> Vec<(TC, Vec<TT>)>
+pub trait Classify<'a, TT>
 where
-    InT: Iterator<Item = &'a TT>,
-    FnT: Fn(TC, TT) -> TC,
-    TC: Copy + std::cmp::PartialEq,
     TT: Copy + 'a,
 {
-    let mut parts = Vec::<(TC, Vec<TT>)>::new();
-    let mut last = (start_ccl, Vec::<TT>::new());
-    let mut ccl: TC = start_ccl;
+    // This function splits the input(self) at every change of the return value of fnx
+    // signature of fnx := fn fnx(ccl: u32, curc: u8) -> u32 (new ccl)
+    // This function is a special variant of the TwoVec methods
+    fn classify<TC, FnT>(self, fnx: FnT, start_ccl: TC) -> Vec<(TC, Vec<TT>)>
+    where
+        TC: Copy + std::cmp::PartialEq,
+        FnT: Fn(TC, TT) -> TC;
+}
 
-    for i in input
-        .map(|&x| {
-            let new_ccl = fnx(ccl, x);
-            let is_change = new_ccl != ccl;
-            ccl = new_ccl;
-            use boolinator::Boolinator;
-            (is_change.as_some(new_ccl), Some(x))
-        })
-        .chain(vec![(Some(start_ccl), None as Option<TT>)].into_iter())
+impl<'a, InT, TT> Classify<'a, TT> for InT
+where
+    InT: Iterator<Item = &'a TT>,
+    TT: Copy + 'a,
+{
+    fn classify<TC, FnT>(self, fnx: FnT, start_ccl: TC) -> Vec<(TC, Vec<TT>)>
+    where
+        TC: Copy + std::cmp::PartialEq,
+        FnT: Fn(TC, TT) -> TC,
     {
-        let (pccl, pcurc) = i;
+        let mut parts = Vec::<(TC, Vec<TT>)>::new();
+        let mut last = (start_ccl, Vec::<TT>::new());
+        let mut ccl: TC = start_ccl;
 
-        if let Some(x) = pccl {
-            let tmp = std::mem::replace(&mut last, (x, vec![]));
-            if !tmp.1.is_empty() {
-                parts.push(tmp);
+        for i in self
+            .map(|&x| {
+                let new_ccl = fnx(ccl, x);
+                let is_change = new_ccl != ccl;
+                ccl = new_ccl;
+                use boolinator::Boolinator;
+                (is_change.as_some(new_ccl), Some(x))
+            })
+            .chain(vec![(Some(start_ccl), None as Option<TT>)].into_iter())
+        {
+            let (pccl, pcurc) = i;
+
+            if let Some(x) = pccl {
+                let tmp = std::mem::replace(&mut last, (x, vec![]));
+                if !tmp.1.is_empty() {
+                    parts.push(tmp);
+                }
+            }
+            if let Some(x) = pcurc {
+                last.1.push(x);
             }
         }
-        if let Some(x) = pcurc {
-            last.1.push(x);
-        }
-    }
 
-    parts
+        parts
+    }
 }
 
 #[cfg(test)]
@@ -77,7 +91,7 @@ mod tests {
     #[test]
     fn test_clsf0() {
         let input: Vec<u8> = vec![0, 0, 1, 1, 2, 2, 3, 0, 5, 5, 5];
-        let res = classify(input.iter(), |_ocl, curc| curc, 0);
+        let res = input.iter().classify(|_ocl, curc| curc, 0);
         assert_eq!(
             res,
             vec![
