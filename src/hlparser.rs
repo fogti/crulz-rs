@@ -96,24 +96,13 @@ impl ToAST for Sections {
                 top.extend(
                     crate::sharpen::classify_bstr(
                         section,
-                        |_ocl, i| {
-                            if i.is_space() {
-                                1
-                            } else {
-                                0
-                            }
-                        },
-                        0,
+                        |_ocl, i| i.is_space(),
+                        false,
                     )
                     .into_iter()
                     .map(|i| {
                         let (ccl, x) = i;
-                        assert!(!x.is_empty());
-                        match ccl {
-                            0 => ASTNode::Constant(x),
-                            1 => ASTNode::Space(x),
-                            _ => unreachable!(),
-                        }
+                        if ccl { ASTNode::Space(x) } else { ASTNode::Constant(x) }
                     }),
                 );
             }
