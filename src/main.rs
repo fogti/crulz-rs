@@ -2,7 +2,7 @@
 mod hlparser;
 mod llparser;
 
-use hlparser::{tr_secs, ToU8Vc};
+use hlparser::ToU8Vc;
 use llparser::file2secs;
 use std::{io, io::Write};
 
@@ -30,6 +30,8 @@ fn main() {
     }
 
     let trs = crossparse!(file2secs, &args[1], escc);
+
+    println!("{:#?}", &trs);
 
     let rsb = trs.to_u8v(escc);
     io::stdout()
