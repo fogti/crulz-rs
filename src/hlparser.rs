@@ -40,13 +40,13 @@ impl ToU8Vc for Vec<ASTNode> {
     }
 }
 
-pub fn tr_secs(parts: Sections, escc: u8, nesting: usize) -> Vec<ASTNode> {
-    println!("nesting = {}", nesting);
-    for i in &parts {
-        let (is_cmdeval, section) = i;
-        println!("{} : {:?}", is_cmdeval, section);
-    }
+macro_rules! crossparse {
+    ($fn:path, $input:expr, $escc:ident) => {
+        tr_secs($fn($input, $escc), $escc)
+    };
+}
 
+pub fn tr_secs(parts: Sections, escc: u8) -> Vec<ASTNode> {
     let mut top = Vec::<ASTNode>::new();
 
     for i in parts {
@@ -63,7 +63,7 @@ pub fn tr_secs(parts: Sections, escc: u8, nesting: usize) -> Vec<ASTNode> {
                 std::str::from_utf8(&section[0..first_space.unwrap_or(section.len())])
                     .expect("got non-utf8 symbol")
                     .to_owned(),
-                Box::new(tr_secs(parse_whole(rest, escc), escc, nesting + 1)),
+                Box::new(crossparse!(parse_whole, rest, escc)),
             ));
         } else {
             let mut twv = TwoVec::<u8>::new();

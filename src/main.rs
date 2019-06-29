@@ -1,3 +1,4 @@
+#[macro_use]
 mod hlparser;
 mod llparser;
 
@@ -28,15 +29,9 @@ fn main() {
         std::process::exit(1);
     }
 
-    let trs = tr_secs(file2secs(&args[1], escc), escc, 0);
-    for i in &trs {
-        println!("{:#?}", i);
-    }
+    let trs = crossparse!(file2secs, &args[1], escc);
 
     let rsb = trs.to_u8v(escc);
-    println!("reserialized::");
-    println!("{:?}", &rsb);
-    println!("result::");
     io::stdout()
         .write_all(&rsb)
         .expect("unable to write reser-result");
