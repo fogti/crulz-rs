@@ -1,37 +1,32 @@
 extern crate readfilez;
 
+use crate::sharpen::*;
+
+#[derive(Clone, Copy)]
 enum LLParserMode {
     Normal,
+    GroupN(u32),
     CmdN(u32),
 }
 
-pub struct TwoVec<T> {
-    pub parts: Vec<Vec<T>>,
-    last: Vec<T>,
-}
-
-impl<T> TwoVec<T> {
-    pub fn new() -> Self {
-        Self {
-            parts: vec![],
-            last: vec![],
-        }
+impl LLParserMode {
+    fn incr(&mut self) {
+        use LLParserMode::*;
+        let res = match &self {
+            GroupN(x) => GroupN(x + 1),
+            CmdN(x) => CmdN(x + 1),
+            _ => *self,
+        };
+        *self = res;
     }
-
-    pub fn finish(mut self) -> Vec<Vec<T>> {
-        self.up_push();
-        self.parts
-    }
-
-    pub fn up_push(&mut self) {
-        let tmp = std::mem::replace(&mut self.last, vec![]);
-        if !tmp.is_empty() {
-            self.parts.push(tmp);
-        }
-    }
-
-    pub fn push(&mut self, x: T) {
-        self.last.push(x);
+    fn decr(&mut self) {
+        use LLParserMode::*;
+        let res = match &self {
+            GroupN(x) => GroupN(x - 1),
+            CmdN(x) => CmdN(x - 1),
+            _ => *self,
+        };
+        *self = res;
     }
 }
 
@@ -54,9 +49,8 @@ impl LLParser {
     // without making parse_whole and file2secs much more complex
     pub fn finish(&mut self) -> std::io::Result<Vec<Vec<u8>>> {
         use std::io;
-        self.secs.up_push();
         if let LLParserMode::Normal = self.pm {
-            Ok(std::mem::replace(&mut self.secs.parts, vec![]))
+            Ok(self.secs.finish())
         } else {
             Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
@@ -71,11 +65,31 @@ impl LLParser {
         // are valid utf8
         for &i in input.iter() {
             use LLParserMode::*;
+            let mut r2normal = false;
             match self.pm {
-                Normal => {
+                Normal | GroupN(0) => {
+                    if let GroupN(0) = self.pm {
+                        self.pm = Normal;
+                        self.secs.up_push();
+                    }
                     if i == self.escc {
                         self.pm = CmdN(0);
                     } else {
+                        match i {
+                            // 40 = '(' // 41 = ')'
+                            40 => {
+                                self.pm = GroupN(1);
+                                self.secs.up_push();
+                            }
+                            41 => {
+                                use std::io::Write; // !'('
+                                let _ = writeln!(
+                                    std::io::stderr(),
+                                    "crulz: WARNING: unexpected unbalanced ')'"
+                                );
+                            }
+                            _ => {}
+                        }
                         self.secs.push(i);
                     }
                 }
@@ -93,17 +107,23 @@ impl LLParser {
                     }
                     self.secs.push(i);
                 }
-                CmdN(x) => {
+                CmdN(x) | GroupN(x) => {
                     self.secs.push(i);
                     match i {
-                        40 => self.pm = CmdN(x + 1),
-                        41 => self.pm = if x == 1 { Normal } else { CmdN(x - 1) },
+                        40 => self.pm.incr(),
+                        41 => {
+                            self.pm.decr();
+                            if x == 1 {
+                                r2normal = true;
+                            }
+                        }
                         _ => {}
                     }
-                    if let Normal = self.pm {
-                        self.secs.up_push();
-                    }
                 }
+            }
+            if r2normal {
+                self.pm = Normal;
+                self.secs.up_push();
             }
         }
 
@@ -135,6 +155,15 @@ impl IsSpace for char {
 
 pub type Sections = Vec<(bool, Vec<u8>)>;
 
+fn remap_section(section: Vec<u8>, escc: u8) -> (bool, Vec<u8>) {
+    assert!(!section.is_empty());
+    if *section.first().unwrap() == escc {
+        (true, section[2..section.len() - 1].to_vec())
+    } else {
+        (false, section)
+    }
+}
+
 pub fn parse_whole(input: &[u8], escc: u8) -> Sections {
     let mut parser = LLParser::new(escc);
     let cls: Vec<Box<dyn FnOnce(&mut LLParser) -> Vec<Vec<u8>>>> = vec![
@@ -143,16 +172,13 @@ pub fn parse_whole(input: &[u8], escc: u8) -> Sections {
     ];
     cls.into_iter()
         .map(|fnx| {
-            fnx(&mut parser).into_iter().map(|section: Vec<u8>| {
-                assert!(!section.is_empty());
-                if *section.first().unwrap() == escc {
-                    (true, section[2..section.len() - 1].to_vec())
-                } else {
-                    (false, section)
-                }
-            })
+            fnx(&mut parser)
+            //.into_iter()
+            //.map(|section| remap_section(section, escc))
         })
         .flatten()
+        .map(|section| remap_section(section, escc))
+        //.flatten()
         .collect()
 }
 
@@ -173,14 +199,9 @@ pub fn file2secs(filename: &str, escc: u8) -> Sections {
     ];
     cls.into_iter()
         .map(|fnx| {
-            fnx(&mut parser).into_iter().map(|section: Vec<u8>| {
-                assert!(!section.is_empty());
-                if *section.first().unwrap() == escc {
-                    (true, section[2..section.len() - 1].to_vec())
-                } else {
-                    (false, section)
-                }
-            })
+            fnx(&mut parser)
+                .into_iter()
+                .map(|section| remap_section(section, escc))
         })
         .flatten()
         .collect()

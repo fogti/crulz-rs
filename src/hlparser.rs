@@ -2,8 +2,9 @@ use crate::llparser::Sections;
 
 #[derive(Clone, Debug)]
 pub enum ASTNode {
-    Space(u8),
+    Space(Vec<u8>),
     Constant(Vec<u8>),
+    Grouped(Box<Vec<ASTNode>>),
     CmdEval(String, Box<Vec<ASTNode>>),
 }
 
@@ -15,8 +16,16 @@ impl ToU8Vc for ASTNode {
     fn to_u8v(self, escc: u8) -> Vec<u8> {
         use ASTNode::*;
         match self {
-            Space(x) => vec![x],
+            Space(x) => x,
             Constant(x) => x,
+            Grouped(elems) => {
+                let mut inner = elems.to_u8v(escc);
+                let mut ret = Vec::<u8>::with_capacity(2 + inner.len());
+                ret.push(40);
+                ret.append(&mut inner);
+                ret.push(41);
+                ret
+            }
             CmdEval(cmd, args) => {
                 let mut rest = args.to_u8v(escc);
                 let mut ret = Vec::<u8>::with_capacity(4 + cmd.len() + rest.len());
@@ -61,7 +70,9 @@ impl ToAST for Sections {
 
         for i in self {
             let (is_cmdeval, section) = i;
-            use crate::llparser::{parse_whole, IsSpace, TwoVec};
+            assert!(!section.is_empty());
+            let slen = section.len();
+            use crate::llparser::{parse_whole, IsSpace};
             if is_cmdeval {
                 let first_space = section.iter().position(|&x| x.is_space());
                 let rest = match first_space {
@@ -70,31 +81,41 @@ impl ToAST for Sections {
                 };
 
                 top.push(ASTNode::CmdEval(
-                    std::str::from_utf8(&section[0..first_space.unwrap_or(section.len())])
+                    std::str::from_utf8(&section[0..first_space.unwrap_or(slen)])
                         .expect("got non-utf8 symbol")
                         .to_owned(),
                     Box::new(crossparse!(parse_whole, rest, escc)),
                 ));
+            } else if *section.first().unwrap() == 40 && *section.last().unwrap() == 41 {
+                top.push(ASTNode::Grouped(Box::new(crossparse!(
+                    parse_whole,
+                    &section[1..slen - 1],
+                    escc
+                ))));
             } else {
-                let mut twv = TwoVec::<u8>::new();
-                for i in section {
-                    if i.is_space() {
-                        twv.up_push();
-                        twv.push(i);
-                        twv.up_push();
-                    } else {
-                        twv.push(i);
-                    }
-                }
-                top.extend(twv.finish().into_iter().map(|i| {
-                    if i.len() == 1 {
-                        let x = *i.first().unwrap();
-                        if x.is_space() {
-                            return ASTNode::Space(x);
+                top.extend(
+                    crate::sharpen::classify_bstr(
+                        section,
+                        |_ocl, i| {
+                            if i.is_space() {
+                                1
+                            } else {
+                                0
+                            }
+                        },
+                        0,
+                    )
+                    .into_iter()
+                    .map(|i| {
+                        let (ccl, x) = i;
+                        assert!(!x.is_empty());
+                        match ccl {
+                            0 => ASTNode::Constant(x),
+                            1 => ASTNode::Space(x),
+                            _ => unreachable!(),
                         }
-                    }
-                    ASTNode::Constant(i)
-                }));
+                    }),
+                );
             }
         }
 

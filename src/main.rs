@@ -1,6 +1,7 @@
 #[macro_use]
 mod hlparser;
 mod llparser;
+mod sharpen;
 
 use hlparser::ToU8Vc;
 use llparser::file2secs;

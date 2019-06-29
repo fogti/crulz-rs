@@ -9,6 +9,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "crulz"
 version = "0.0.1"
 dependencies = [
+ "boolinator 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "readfilez 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 

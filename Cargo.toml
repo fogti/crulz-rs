@@ -5,4 +5,5 @@ authors = ["Erik Zscheile <erik.zscheile@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+boolinator = "2.4"
 readfilez = "0.1"
