@@ -30,47 +30,6 @@ impl<T> TwoVec<T> {
     }
 }
 
-struct ClassifyHelper<TC, TT>
-where
-    TC: Copy,
-{
-    pub parts: Vec<(TC, Vec<TT>)>,
-    last: (TC, Vec<TT>),
-    start_ccl: TC,
-}
-
-impl<TC, TT> ClassifyHelper<TC, TT>
-where
-    TC: Copy,
-{
-    pub fn new(start_ccl: TC) -> Self {
-        Self {
-            parts: vec![],
-            last: (start_ccl, vec![]),
-            start_ccl,
-        }
-    }
-
-    pub fn finish(mut self) -> Vec<(TC, Vec<TT>)> {
-        self.up_push(self.start_ccl);
-        self.parts
-    }
-
-    fn up_push(&mut self, ccl: TC) {
-        let tmp = std::mem::replace(&mut self.last, (ccl, vec![]));
-        if !tmp.1.is_empty() {
-            self.parts.push(tmp);
-        }
-    }
-
-    pub fn xpush(&mut self, x: TT, pccl: Option<TC>) {
-        if let Some(x) = pccl {
-            self.up_push(x);
-        }
-        self.last.1.push(x);
-    }
-}
-
 // This function splits the bytestring at every change of the return value of fnx
 // signature of fnx := fn fnx(ccl: u32, curc: u8) -> u32 (new ccl)
 // This function is a special variant of the TwoVec methods
@@ -82,28 +41,37 @@ where
 {
     let x2: Vec<_> = {
         let mut ccl: TC = start_ccl;
+        let terminator: Vec<(Option<TC>, Option<TT>)> = vec![(Some(start_ccl), None)];
         input
             .into_iter()
             .map(|x| {
                 let new_ccl = fnx(ccl, x);
-                let ret = (new_ccl, x, (new_ccl != ccl));
-                if new_ccl != ccl {
-                    ccl = new_ccl;
-                }
-                ret
+                let is_change = new_ccl != ccl;
+                ccl = new_ccl;
+                use boolinator::Boolinator;
+                (is_change.as_some(new_ccl), Some(x))
             })
+            .chain(terminator.into_iter())
             .collect()
     };
 
-    let mut helper = ClassifyHelper::<TC, TT>::new(start_ccl);
+    let mut parts = Vec::<(TC, Vec<TT>)>::new();
+    let mut last = (start_ccl, Vec::<TT>::new());
 
     for i in x2 {
-        use boolinator::Boolinator;
-        let (ccl, curc, is_change) = i;
-        helper.xpush(curc, is_change.as_some(ccl));
+        let (pccl, pcurc) = i;
+        if let Some(x) = pccl {
+            let tmp = std::mem::replace(&mut last, (x, vec![]));
+            if !tmp.1.is_empty() {
+                parts.push(tmp);
+            }
+        }
+        if let Some(x) = pcurc {
+            last.1.push(x);
+        }
     }
 
-    helper.finish()
+    parts
 }
 
 #[cfg(test)]
