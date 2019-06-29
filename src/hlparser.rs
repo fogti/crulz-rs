@@ -96,7 +96,6 @@ impl ToAST for Sections {
                 use crate::sharpen::Classify;
                 top.extend(
                     section
-                        .iter()
                         .classify(|_ocl, i| i.is_space(), false)
                         .into_iter()
                         .map(|i| {

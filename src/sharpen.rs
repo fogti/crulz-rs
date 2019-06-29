@@ -43,9 +43,10 @@ where
         FnT: Fn(TC, TT) -> TC;
 }
 
-impl<'a, InT, TT> Classify<'a, TT> for InT
+impl<'a, InT, ITT, TT> Classify<'a, TT> for InT
 where
-    InT: Iterator<Item = &'a TT>,
+    InT: IntoIterator<Item = ITT>,
+    ITT: std::ops::Deref<Target = TT> + 'a,
     TT: Copy + 'a,
 {
     fn classify<TC, FnT>(self, fnx: FnT, start_ccl: TC) -> Vec<(TC, Vec<TT>)>
@@ -58,7 +59,9 @@ where
         let mut ccl: TC = start_ccl;
 
         for i in self
-            .map(|&x| {
+            .into_iter()
+            .map(|x| {
+                let x = *x;
                 let new_ccl = fnx(ccl, x);
                 let is_change = new_ccl != ccl;
                 ccl = new_ccl;
@@ -91,7 +94,7 @@ mod tests {
     #[test]
     fn test_clsf0() {
         let input: Vec<u8> = vec![0, 0, 1, 1, 2, 2, 3, 0, 5, 5, 5];
-        let res = input.iter().classify(|_ocl, curc| curc, 0);
+        let res = input.classify(|_ocl, curc| curc, 0);
         assert_eq!(
             res,
             vec![
