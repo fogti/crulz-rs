@@ -1,14 +1,13 @@
+mod hlparser;
 mod llparser;
+
+use hlparser::{tr_secs, ToU8Vc};
 use llparser::file2secs;
+use std::{io, io::Write};
 
 pub fn errmsg(s: &str) {
-    use std::io::Write;
-    let res = writeln!(std::io::stderr(), "crulz: ERROR: {}", s);
-    if let Err(_) = res {
-        std::process::exit(2);
-    } else {
-        std::process::exit(1);
-    }
+    let res = writeln!(io::stderr(), "crulz: ERROR: {}", s);
+    std::process::exit(if let Err(_) = res { 2 } else { 1 });
 }
 
 fn main() {
@@ -29,10 +28,16 @@ fn main() {
         std::process::exit(1);
     }
 
-    let parts = file2secs(&args[1], escc);
-
-    for i in &parts {
-        let (is_cmdeval, section) = i;
-        println!("{} : {:?}", is_cmdeval, section);
+    let trs = tr_secs(file2secs(&args[1], escc), escc, 0);
+    for i in &trs {
+        println!("{:#?}", i);
     }
+
+    let rsb = trs.to_u8v(escc);
+    println!("reserialized::");
+    println!("{:?}", &rsb);
+    println!("result::");
+    io::stdout()
+        .write_all(&rsb)
+        .expect("unable to write reser-result");
 }

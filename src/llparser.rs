@@ -5,27 +5,32 @@ enum LLParserMode {
     CmdN(u32),
 }
 
-struct TwoVec<T> {
+pub struct TwoVec<T> {
     pub parts: Vec<Vec<T>>,
     last: Vec<T>,
 }
 
 impl<T> TwoVec<T> {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             parts: vec![],
             last: vec![],
         }
     }
 
-    fn up_push(&mut self) {
+    pub fn finish(mut self) -> Vec<Vec<T>> {
+        self.up_push();
+        self.parts
+    }
+
+    pub fn up_push(&mut self) {
         let tmp = std::mem::replace(&mut self.last, vec![]);
         if !tmp.is_empty() {
             self.parts.push(tmp);
         }
     }
 
-    fn push(&mut self, x: T) {
+    pub fn push(&mut self, x: T) {
         self.last.push(x);
     }
 }
@@ -45,6 +50,8 @@ impl LLParser {
         }
     }
 
+    // we need to use (&mut self) because we can't invalidate self
+    // without making parse_whole and file2secs much more complex
     pub fn finish(&mut self) -> std::io::Result<Vec<Vec<u8>>> {
         use std::io;
         self.secs.up_push();
@@ -126,7 +133,28 @@ impl IsSpace for char {
     }
 }
 
-type Sections = Vec<(bool, Vec<u8>)>;
+pub type Sections = Vec<(bool, Vec<u8>)>;
+
+pub fn parse_whole(input: &[u8], escc: u8) -> Sections {
+    let mut parser = LLParser::new(escc);
+    let cls: Vec<Box<dyn FnOnce(&mut LLParser) -> Vec<Vec<u8>>>> = vec![
+        Box::new(|parser| parser.feed(input)),
+        Box::new(|parser| parser.finish().expect("unexpected EOF")),
+    ];
+    cls.into_iter()
+        .map(|fnx| {
+            fnx(&mut parser).into_iter().map(|section: Vec<u8>| {
+                assert!(!section.is_empty());
+                if *section.first().unwrap() == escc {
+                    (true, section[2..section.len() - 1].to_vec())
+                } else {
+                    (false, section)
+                }
+            })
+        })
+        .flatten()
+        .collect()
+}
 
 pub fn file2secs(filename: &str, escc: u8) -> Sections {
     let mut parser = LLParser::new(escc);
