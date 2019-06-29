@@ -30,22 +30,22 @@ impl<T> TwoVec<T> {
     }
 }
 
-// This function splits the bytestring at every change of the return value of fnx
+// This function splits the input at every change of the return value of fnx
 // signature of fnx := fn fnx(ccl: u32, curc: u8) -> u32 (new ccl)
 // This function is a special variant of the TwoVec methods
-pub fn classify_bstr<FnT, TC, TT>(input: Vec<TT>, fnx: FnT, start_ccl: TC) -> Vec<(TC, Vec<TT>)>
+pub fn classify<'a, InT, FnT, TC, TT>(input: InT, fnx: FnT, start_ccl: TC) -> Vec<(TC, Vec<TT>)>
 where
+    InT: Iterator<Item = &'a TT>,
     FnT: Fn(TC, TT) -> TC,
     TC: Copy + std::cmp::PartialEq,
-    TT: Copy,
+    TT: Copy + 'a,
 {
     let mut parts = Vec::<(TC, Vec<TT>)>::new();
     let mut last = (start_ccl, Vec::<TT>::new());
     let mut ccl: TC = start_ccl;
 
     for i in input
-        .into_iter()
-        .map(|x| {
+        .map(|&x| {
             let new_ccl = fnx(ccl, x);
             let is_change = new_ccl != ccl;
             ccl = new_ccl;
@@ -75,9 +75,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_clsbs0() {
+    fn test_clsf0() {
         let input: Vec<u8> = vec![0, 0, 1, 1, 2, 2, 3, 0, 5, 5, 5];
-        let res = classify_bstr(input, |_ocl, curc| curc, 0);
+        let res = classify(input.iter(), |_ocl, curc| curc, 0);
         assert_eq!(
             res,
             vec![

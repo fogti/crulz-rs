@@ -94,7 +94,7 @@ impl ToAST for Sections {
                 ))));
             } else {
                 top.extend(
-                    crate::sharpen::classify_bstr(section, |_ocl, i| i.is_space(), false)
+                    crate::sharpen::classify(section.iter(), |_ocl, i| i.is_space(), false)
                         .into_iter()
                         .map(|i| {
                             let (ccl, x) = i;
