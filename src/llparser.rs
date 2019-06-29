@@ -171,14 +171,9 @@ pub fn parse_whole(input: &[u8], escc: u8) -> Sections {
         Box::new(|parser| parser.finish().expect("unexpected EOF")),
     ];
     cls.into_iter()
-        .map(|fnx| {
-            fnx(&mut parser)
-            //.into_iter()
-            //.map(|section| remap_section(section, escc))
-        })
+        .map(|fnx| fnx(&mut parser))
         .flatten()
         .map(|section| remap_section(section, escc))
-        //.flatten()
         .collect()
 }
 
@@ -198,11 +193,8 @@ pub fn file2secs(filename: &str, escc: u8) -> Sections {
         Box::new(|parser| parser.finish().expect("unexpected EOF")),
     ];
     cls.into_iter()
-        .map(|fnx| {
-            fnx(&mut parser)
-                .into_iter()
-                .map(|section| remap_section(section, escc))
-        })
+        .map(|fnx| fnx(&mut parser))
         .flatten()
+        .map(|section| remap_section(section, escc))
         .collect()
 }
