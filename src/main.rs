@@ -30,7 +30,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    let trs = crossparse!(file2secs, &args[1], escc);
+    let trs = crossparse!(file2secs, args[1].to_owned(), escc);
 
     println!("{:#?}", &trs);
 

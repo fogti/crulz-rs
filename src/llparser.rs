@@ -30,14 +30,14 @@ impl LLParserMode {
     }
 }
 
-pub struct LLParser {
+struct LLParser {
     pm: LLParserMode,
     secs: TwoVec<u8>,
     escc: u8,
 }
 
 impl LLParser {
-    pub fn new(escc: u8) -> Self {
+    fn new(escc: u8) -> Self {
         Self {
             pm: LLParserMode::Normal,
             secs: TwoVec::new(),
@@ -46,12 +46,12 @@ impl LLParser {
     }
 
     // we need to use (&mut self) because we can't invalidate self
-    // without making parse_whole and file2secs much more complex
-    pub fn finish(&mut self) -> std::io::Result<Vec<Vec<u8>>> {
-        use std::io;
+    // without making run_parser much more complex
+    fn finish(&mut self) -> std::io::Result<Vec<Vec<u8>>> {
         if let LLParserMode::Normal = self.pm {
             Ok(self.secs.finish())
         } else {
+            use std::io;
             Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 "LLParser::finish",
@@ -59,7 +59,7 @@ impl LLParser {
         }
     }
 
-    pub fn feed(&mut self, input: &[u8]) -> Vec<Vec<u8>> {
+    fn feed(&mut self, input: &[u8]) -> Vec<Vec<u8>> {
         // we should be able to parse non-utf8 input,
         // as long as the parts starting with ESCC '(' ( and ending with ')')
         // are valid utf8
@@ -112,9 +112,10 @@ impl LLParser {
                     match i {
                         40 => self.pm.incr(),
                         41 => {
-                            self.pm.decr();
                             if x == 1 {
                                 r2normal = true;
+                            } else {
+                                self.pm.decr();
                             }
                         }
                         _ => {}
@@ -179,8 +180,7 @@ pub fn parse_whole(input: &[u8], escc: u8) -> Sections {
     run_parser(escc, Box::new(|parser| parser.feed(input)))
 }
 
-pub fn file2secs(filename: &str, escc: u8) -> Sections {
-    let filename = filename.to_owned();
+pub fn file2secs(filename: String, escc: u8) -> Sections {
     run_parser(
         escc,
         Box::new(|parser| {
