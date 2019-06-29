@@ -39,27 +39,23 @@ where
     TC: Copy + std::cmp::PartialEq,
     TT: Copy,
 {
-    let x2: Vec<_> = {
-        let mut ccl: TC = start_ccl;
-        let terminator: Vec<(Option<TC>, Option<TT>)> = vec![(Some(start_ccl), None)];
-        input
-            .into_iter()
-            .map(|x| {
-                let new_ccl = fnx(ccl, x);
-                let is_change = new_ccl != ccl;
-                ccl = new_ccl;
-                use boolinator::Boolinator;
-                (is_change.as_some(new_ccl), Some(x))
-            })
-            .chain(terminator.into_iter())
-            .collect()
-    };
-
     let mut parts = Vec::<(TC, Vec<TT>)>::new();
     let mut last = (start_ccl, Vec::<TT>::new());
+    let mut ccl: TC = start_ccl;
 
-    for i in x2 {
+    for i in input
+        .into_iter()
+        .map(|x| {
+            let new_ccl = fnx(ccl, x);
+            let is_change = new_ccl != ccl;
+            ccl = new_ccl;
+            use boolinator::Boolinator;
+            (is_change.as_some(new_ccl), Some(x))
+        })
+        .chain(vec![(Some(start_ccl), None as Option<TT>)].into_iter())
+    {
         let (pccl, pcurc) = i;
+
         if let Some(x) = pccl {
             let tmp = std::mem::replace(&mut last, (x, vec![]));
             if !tmp.1.is_empty() {
@@ -81,7 +77,7 @@ mod tests {
     #[test]
     fn test_clsbs0() {
         let input: Vec<u8> = vec![0, 0, 1, 1, 2, 2, 3, 0, 5, 5, 5];
-        let res = classify_bstr(input, |_ocl, curc| curc as u32, 0);
+        let res = classify_bstr(input, |_ocl, curc| curc, 0);
         assert_eq!(
             res,
             vec![
