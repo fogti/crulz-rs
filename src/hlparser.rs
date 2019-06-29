@@ -76,13 +76,15 @@ pub fn tr_secs(parts: Sections, escc: u8) -> Vec<ASTNode> {
                     twv.push(i);
                 }
             }
-            for i in twv.finish() {
-                top.push(if i.len() == 1 && i.first().unwrap().is_space() {
-                    ASTNode::Space(*i.first().unwrap())
-                } else {
-                    ASTNode::Constant(i)
-                })
-            }
+            top.extend(twv.finish().into_iter().map(|i| {
+                if i.len() == 1 {
+                    let x = *i.first().unwrap();
+                    if x.is_space() {
+                        return ASTNode::Space(x);
+                    }
+                }
+                ASTNode::Constant(i)
+            }));
         }
     }
 
