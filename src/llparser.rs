@@ -155,32 +155,34 @@ impl IsSpace for char {
 
 pub type Sections = Vec<(bool, Vec<u8>)>;
 
-fn remap_section(section: Vec<u8>, escc: u8) -> (bool, Vec<u8>) {
-    assert!(!section.is_empty());
-    if *section.first().unwrap() == escc {
-        (true, section[2..section.len() - 1].to_vec())
-    } else {
-        (false, section)
-    }
-}
-
-pub fn parse_whole(input: &[u8], escc: u8) -> Sections {
+fn run_parser<'a>(escc: u8, fnx: Box<dyn FnOnce(&mut LLParser) -> Vec<Vec<u8>> + 'a>) -> Sections {
     let mut parser = LLParser::new(escc);
     let cls: Vec<Box<dyn FnOnce(&mut LLParser) -> Vec<Vec<u8>>>> = vec![
-        Box::new(|parser| parser.feed(input)),
+        fnx,
         Box::new(|parser| parser.finish().expect("unexpected EOF")),
     ];
     cls.into_iter()
         .map(|fnx| fnx(&mut parser))
         .flatten()
-        .map(|section| remap_section(section, escc))
+        .map(|section| {
+            assert!(!section.is_empty());
+            if *section.first().unwrap() == escc {
+                (true, section[2..section.len() - 1].to_vec())
+            } else {
+                (false, section)
+            }
+        })
         .collect()
 }
 
+pub fn parse_whole(input: &[u8], escc: u8) -> Sections {
+    run_parser(escc, Box::new(|parser| parser.feed(input)))
+}
+
 pub fn file2secs(filename: &str, escc: u8) -> Sections {
-    let mut parser = LLParser::new(escc);
     let filename = filename.to_owned();
-    let cls: Vec<Box<dyn FnOnce(&mut LLParser) -> Vec<Vec<u8>>>> = vec![
+    run_parser(
+        escc,
         Box::new(|parser| {
             readfilez::ContinuableFile::new(
                 std::fs::File::open(filename).expect("unable to open file"),
@@ -190,11 +192,5 @@ pub fn file2secs(filename: &str, escc: u8) -> Sections {
             .flatten()
             .collect()
         }),
-        Box::new(|parser| parser.finish().expect("unexpected EOF")),
-    ];
-    cls.into_iter()
-        .map(|fnx| fnx(&mut parser))
-        .flatten()
-        .map(|section| remap_section(section, escc))
-        .collect()
+    )
 }
