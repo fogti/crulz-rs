@@ -115,7 +115,6 @@ impl MangleAST for ASTNode {
         let mut cplx = self.get_complexity();
         let mut self_ = self.clone();
         while let Grouped(is_strict, ref mut x) = &mut self_ {
-            x.simplify();
             match x.len() {
                 0 => {
                     if !*is_strict {
@@ -130,12 +129,13 @@ impl MangleAST for ASTNode {
                         } else {
                             // swap it back, omit clone
                             x[0] = y;
+                            x[0].simplify();
                         }
                     } else {
                         self_ = y;
                     }
                 }
-                _ => {}
+                _ => x.simplify(),
             }
             let new_cplx = self_.get_complexity();
             if new_cplx >= cplx {
