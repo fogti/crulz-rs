@@ -293,7 +293,7 @@ impl MangleAST for Vec<ASTNode> {
             .collect::<Vec<ASTNode>>();
     }
     fn replace_inplace(&mut self, from: &[u8], to: &ASTNode) {
-        if from.len() == 0 {
+        if from.is_empty() {
             return;
         }
         self.par_iter_mut()

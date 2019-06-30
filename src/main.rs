@@ -12,14 +12,8 @@ mod sharpen;
 use std::{io, io::Write};
 
 pub fn errmsg(s: &str) {
-    let res = writeln!(io::stderr(), "crulz: ERROR: {}", s);
-    std::process::exit(if let Err(_) = res { 2 } else { 1 });
-}
-
-macro_rules! printerrln_xs {
-    ($($x:expr),*) => {{
-        writeln!(io::stderr(), $($x,)*).unwrap();
-    }}
+    eprintln!("crulz: ERROR: {}", s);
+    std::process::exit(1);
 }
 
 fn main() {
@@ -65,17 +59,17 @@ fn main() {
     let mut trs = crossparse!(llparser::file2secs, input_file, escc);
 
     if vblvl > 1 {
-        printerrln_xs!("crulz: AST before evaluation:");
-        printerrln_xs!("{:#?}", &trs);
-        printerrln_xs!("----");
+        eprintln!("crulz: AST before evaluation:");
+        eprintln!("{:#?}", &trs);
+        eprintln!("----");
     }
 
     interp::eval(&mut trs);
 
     if vblvl > 0 {
-        printerrln_xs!("crulz: AST after evaluation:");
-        printerrln_xs!("{:#?}", &trs);
-        printerrln_xs!("----");
+        eprintln!("crulz: AST after evaluation:");
+        eprintln!("{:#?}", &trs);
+        eprintln!("----");
     }
 
     let rsb = trs.to_u8v(escc);
