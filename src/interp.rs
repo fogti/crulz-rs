@@ -43,21 +43,29 @@ mod builtin {
             return None;
         }
         let mut unpack = |x: &mut ASTNode| {
-            let mut y = std::mem::replace(x, ASTNode::NullNode).eval(&mut ctx).lift_ast();
+            let mut y = std::mem::replace(x, ASTNode::NullNode)
+                .eval(&mut ctx)
+                .lift_ast();
             y.simplify();
             y
         };
         use std::str;
         let varname = unpack(&mut unspaced[0]);
         let argc = unpack(&mut unspaced[1]);
-        let varname = str::from_utf8(varname.get_constant()?).expect("expected utf8 varname").to_owned();
-        let argc: usize = str::from_utf8(argc.get_constant()?).expect("expected utf8 argc").parse().expect("expected number as argc");
+        let varname = str::from_utf8(varname.get_constant()?)
+            .expect("expected utf8 varname")
+            .to_owned();
+        let argc: usize = str::from_utf8(argc.get_constant()?)
+            .expect("expected utf8 argc")
+            .parse()
+            .expect("expected number as argc");
         let value = {
             let mut y = std::mem::replace(&mut unspaced[2], ASTNode::NullNode).lift_ast();
             y.simplify();
             y
         };
-        ctx.defs.insert(Cow::from(varname), InterpValue::Data(argc, value));
+        ctx.defs
+            .insert(Cow::from(varname), InterpValue::Data(argc, value));
         Some(vec![])
     });
 }

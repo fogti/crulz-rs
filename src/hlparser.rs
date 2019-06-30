@@ -27,7 +27,6 @@ pub trait MangleAST {
 
     /// this replace function works on byte-basis and honours ASTNode boundaries
     fn replace(&mut self, from: &[u8], to: &[ASTNode]);
-
 }
 
 // helper for MangleAST::simplify
@@ -281,7 +280,8 @@ impl MangleAST for Vec<ASTNode> {
                             })
                             .flatten()
                             .collect(),
-                    ).lift_ast(),
+                    )
+                    .lift_ast(),
                     ASTNodeClass::Constant => Constant(
                         i.into_iter()
                             .map(|j| {
@@ -293,20 +293,21 @@ impl MangleAST for Vec<ASTNode> {
                             })
                             .flatten()
                             .collect(),
-                    ).lift_ast(),
-                    ASTNodeClass::Grouped(false) =>
-                            i.into_iter()
-                                .map(|j| {
-                                    if let Grouped(_, x) = j {
-                                        *x
-                                    } else {
-                                        unreachable!();
-                                    }
-                                })
-                                .flatten()
-                                .collect::<Vec<_>>()
-                                .lift_ast()
-                                .lift_ast(),
+                    )
+                    .lift_ast(),
+                    ASTNodeClass::Grouped(false) => i
+                        .into_iter()
+                        .map(|j| {
+                            if let Grouped(_, x) = j {
+                                *x
+                            } else {
+                                unreachable!();
+                            }
+                        })
+                        .flatten()
+                        .collect::<Vec<_>>()
+                        .lift_ast()
+                        .lift_ast(),
                     _ => i,
                 }
             })
@@ -428,11 +429,11 @@ mod tests {
                     Constant(vec![0]),
                     Grouped(
                         false,
-                        Box::new(vec![Grouped(false, Box::new(vec![Constant(vec![4])]))])
+                        Box::new(vec![Grouped(false, Box::new(vec![Constant(vec![4])]))]),
                     ),
-                    Constant(vec![3])
-                ])
-            )])
+                    Constant(vec![3]),
+                ]),
+            )]),
         );
         ast.simplify();
         assert_eq!(ast, Constant(vec![0, 4, 3]));

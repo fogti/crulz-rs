@@ -1,3 +1,4 @@
+extern crate clap;
 extern crate rayon;
 
 #[macro_use]
@@ -6,7 +7,6 @@ mod interp;
 mod llparser;
 mod sharpen;
 
-use hlparser::MangleAST;
 use std::{io, io::Write};
 
 pub fn errmsg(s: &str) {
@@ -14,31 +14,67 @@ pub fn errmsg(s: &str) {
     std::process::exit(if let Err(_) = res { 2 } else { 1 });
 }
 
+macro_rules! printerrln_xs {
+    ($($x:expr),*) => {{
+        writeln!(io::stderr(), $($x,)*).unwrap();
+    }}
+}
+
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    use clap::Arg;
+    use hlparser::MangleAST;
 
-    let mut escc = '\\' as u8;
+    let matches = clap::App::new("crulz")
+        .version("0.0.1")
+        .author("Erik Zscheile <erik.zscheile@gmail.com>")
+        .about("a macro language parser + interpreter")
+        .arg(
+            Arg::with_name("INPUT")
+                .help("sets the input file to use")
+                .required(true)
+                .index(1),
+        )
+        .arg(
+            Arg::with_name("escc")
+                .short("e")
+                .long("escc")
+                .takes_value(true)
+                .help("sets the escape character"),
+        )
+        .arg(
+            Arg::with_name("v")
+                .short("v")
+                .long("verbose")
+                .multiple(true)
+                .help("sets the level of verbosity"),
+        )
+        .get_matches();
 
-    if args.len() > 2 && &args[1] == "-e" {
-        let a2 = args[2].as_bytes();
-        if a2.len() != 1 {
-            errmsg("invalid escc argument");
-        }
-        escc = a2[0];
+    let escc = matches.value_of("escc").unwrap_or("\\").as_bytes();
+    if escc.len() != 1 {
+        errmsg("invalid escc argument");
     }
+    let escc = escc[0] as u8;
 
-    if args.len() < 2 {
-        println!("USAGE: crulz [-e ESCC] INPUT");
-        std::process::exit(1);
+    let vblvl = matches.occurrences_of("v");
+
+    let input_file = matches.value_of("INPUT").unwrap().to_owned();
+
+    let trs = crossparse!(llparser::file2secs, input_file, escc);
+
+    if vblvl > 1 {
+        printerrln_xs!("crulz: AST before evaluation:");
+        printerrln_xs!("{:#?}", &trs);
+        printerrln_xs!("----");
     }
-
-    let trs = crossparse!(llparser::file2secs, args[1].to_owned(), escc);
-
-    println!("{:#?}", &trs);
 
     let trs = interp::eval(trs);
 
-    println!("{:#?}", &trs);
+    if vblvl > 0 {
+        printerrln_xs!("crulz: AST after evaluation:");
+        printerrln_xs!("{:#?}", &trs);
+        printerrln_xs!("----");
+    }
 
     let rsb = trs.to_u8v(escc);
     io::stdout()
