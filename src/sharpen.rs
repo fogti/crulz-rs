@@ -30,9 +30,9 @@ impl<T> TwoVec<T> {
     }
 }
 
-pub trait Classify<'a, TT>
+pub trait Classify<TT>
 where
-    TT: Copy + 'a,
+    TT: Clone,
 {
     // This function splits the input(self) at every change of the return value of fnx
     // signature of fnx := fn fnx(ccl: u32, curc: u8) -> u32 (new ccl)
@@ -40,19 +40,19 @@ where
     fn classify<TC, FnT>(self, fnx: FnT, start_ccl: TC) -> Vec<(TC, Vec<TT>)>
     where
         TC: Copy + std::cmp::PartialEq,
-        FnT: Fn(TC, TT) -> TC;
+        FnT: FnMut(TC, &TT) -> TC;
 }
 
-impl<'a, InT, ITT, TT> Classify<'a, TT> for InT
+impl<InT, ITT, TT> Classify<TT> for InT
 where
     InT: IntoIterator<Item = ITT>,
-    ITT: std::ops::Deref<Target = TT> + 'a,
-    TT: Copy + 'a,
+    ITT: std::ops::Deref<Target = TT>,
+    TT: Clone,
 {
-    fn classify<TC, FnT>(self, fnx: FnT, start_ccl: TC) -> Vec<(TC, Vec<TT>)>
+    fn classify<TC, FnT>(self, mut fnx: FnT, start_ccl: TC) -> Vec<(TC, Vec<TT>)>
     where
         TC: Copy + std::cmp::PartialEq,
-        FnT: Fn(TC, TT) -> TC,
+        FnT: FnMut(TC, &TT) -> TC,
     {
         let mut parts = Vec::<(TC, Vec<TT>)>::new();
         let mut last = (start_ccl, Vec::<TT>::new());
@@ -61,20 +61,20 @@ where
         for i in self
             .into_iter()
             .map(|x| {
-                let x = *x;
-                let new_ccl = fnx(ccl, x);
+                let new_ccl = fnx(ccl, &x);
                 let is_change = new_ccl != ccl;
                 ccl = new_ccl;
                 use boolinator::Boolinator;
-                (is_change.as_some(new_ccl), Some(x))
+                (is_change.as_some(new_ccl), Some(x.deref().clone()))
             })
             .chain(vec![(Some(start_ccl), None as Option<TT>)].into_iter())
         {
             let (pccl, pcurc) = i;
 
             if let Some(x) = pccl {
-                let tmp = std::mem::replace(&mut last, (x, vec![]));
+                let mut tmp = std::mem::replace(&mut last, (x, vec![]));
                 if !tmp.1.is_empty() {
+                    tmp.1.shrink_to_fit();
                     parts.push(tmp);
                 }
             }
@@ -94,7 +94,7 @@ mod tests {
     #[test]
     fn test_clsf0() {
         let input: Vec<u8> = vec![0, 0, 1, 1, 2, 2, 3, 0, 5, 5, 5];
-        let res = input.classify(|_ocl, curc| curc, 0);
+        let res = input.classify(|_ocl, &curc| curc, 0);
         assert_eq!(
             res,
             vec![
@@ -104,6 +104,52 @@ mod tests {
                 (3, vec![3]),
                 (0, vec![0]),
                 (5, vec![5, 5, 5]),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_clsf1() {
+        let input: Vec<Option<u8>> = vec![
+            Some(0),
+            Some(1),
+            Some(5),
+            Some(5),
+            None,
+            None,
+            Some(0),
+            None,
+        ];
+        let res = input.classify(|_, curo| curo.is_some(), true);
+        assert_eq!(
+            res,
+            vec![
+                (true, vec![Some(0), Some(1), Some(5), Some(5)]),
+                (false, vec![None, None]),
+                (true, vec![Some(0)]),
+                (false, vec![None]),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_clsf2() {
+        let input: Vec<Option<Vec<u8>>> = vec![
+            Some(vec![0, 0, 1]),
+            Some(vec![0, 1]),
+            None,
+            None,
+            Some(vec![2]),
+            None,
+        ];
+        let res = input.classify(|_, curo| curo.is_some(), true);
+        assert_eq!(
+            res,
+            vec![
+                (true, vec![Some(vec![0, 0, 1]), Some(vec![0, 1])]),
+                (false, vec![None, None]),
+                (true, vec![Some(vec![2])]),
+                (false, vec![None]),
             ]
         );
     }

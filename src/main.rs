@@ -1,10 +1,10 @@
 #[macro_use]
 mod hlparser;
+mod interp;
 mod llparser;
 mod sharpen;
 
-use hlparser::ToU8Vc;
-use llparser::file2secs;
+use hlparser::MangleAST;
 use std::{io, io::Write};
 
 pub fn errmsg(s: &str) {
@@ -30,7 +30,11 @@ fn main() {
         std::process::exit(1);
     }
 
-    let trs = crossparse!(file2secs, args[1].to_owned(), escc);
+    let trs = crossparse!(llparser::file2secs, args[1].to_owned(), escc);
+
+    println!("{:#?}", &trs);
+
+    let trs = interp::eval(trs);
 
     println!("{:#?}", &trs);
 
