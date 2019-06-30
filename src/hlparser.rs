@@ -5,17 +5,50 @@ pub enum ASTNode {
     NullNode,
     Space(Vec<u8>),
     Constant(Vec<u8>),
-    // Grouped: is_strict, elems
-    // loose groups are created while replacing patterns
+
+    /// Grouped: is_strict, elems
+    /// loose groups are created while replacing patterns
     Grouped(bool, Box<Vec<ASTNode>>),
+
     CmdEval(String, Box<Vec<ASTNode>>),
 }
 
 pub trait MangleAST {
     fn to_u8v(self, escc: u8) -> Vec<u8>;
 
-    // this replace function works on byte-basis and honours ASTNode boundaries
+    /// helper for MangleAST::simplify
+    fn get_complexity(&self) -> usize;
+
+    /// this cleanup up the AST
+    fn simplify(&mut self);
+
+    /// this replace function works on byte-basis and honours ASTNode boundaries
     fn replace(&mut self, from: &[u8], to: &[ASTNode]);
+}
+
+// helper for MangleAST::simplify
+#[derive(Copy, Clone, Debug, PartialEq)]
+enum ASTNodeClass {
+    NullNode,
+    Space,
+    Constant,
+    Grouped(bool),
+    CmdEval,
+}
+
+impl ASTNode {
+    fn get_class(&self) -> ASTNodeClass {
+        use ASTNodeClass::*;
+        match &self {
+            ASTNode::NullNode => NullNode,
+            // allow early reduction
+            ASTNode::Grouped(false, x) if x.is_empty() => NullNode,
+            ASTNode::Space(_) => Space,
+            ASTNode::Constant(_) => Constant,
+            ASTNode::Grouped(s, _) => Grouped(*s),
+            ASTNode::CmdEval(_, _) => CmdEval,
+        }
+    }
 }
 
 impl MangleAST for ASTNode {
@@ -52,11 +85,49 @@ impl MangleAST for ASTNode {
             }
         }
     }
+
+    fn get_complexity(&self) -> usize {
+        use ASTNode::*;
+        match &self {
+            NullNode => 0,
+            Constant(x) | Space(x) => 1 + x.len(),
+            Grouped(_, x) => 2 + x.len(),
+            CmdEval(cmd, x) => 1 + cmd.len() + x.len(),
+        }
+    }
+
+    fn simplify(&mut self) {
+        use ASTNode::*;
+        let mut cplx = self.get_complexity();
+        loop {
+            let mut rep = NullNode;
+            match &self {
+                Grouped(false, x) => {
+                    let mut y = x.clone();
+                    y.simplify();
+                    rep = match y.len() {
+                        0 => NullNode,
+                        1 => y.first().unwrap().clone(),
+                        _ => Grouped(false, y),
+                    };
+                }
+                _ => return,
+            }
+            *self = rep;
+            let new_cplx = self.get_complexity();
+            if new_cplx >= cplx {
+                break;
+            }
+            cplx = new_cplx;
+        }
+    }
+
     fn replace(&mut self, from: &[u8], to: &[ASTNode]) {
         let flen = from.len();
         if flen == 0 {
             return;
         }
+        use rayon::prelude::*;
         use ASTNode::*;
         let mut rep = NullNode;
         match self {
@@ -88,7 +159,7 @@ impl MangleAST for ASTNode {
                             },
                             false,
                         )
-                        .into_iter()
+                        .into_par_iter()
                         .map(|(d, i)| {
                             // replace matches with 'None'
                             use boolinator::Boolinator;
@@ -96,7 +167,7 @@ impl MangleAST for ASTNode {
                         })
                         .collect::<Vec<_>>()
                         .classify(|_, i| i.is_some(), true)
-                        .into_iter()
+                        .into_par_iter()
                         .map(|(d, i)| {
                             if d {
                                 // 'Some'
@@ -142,13 +213,6 @@ impl MangleAST for ASTNode {
         }
         match &rep {
             NullNode => return,
-            Grouped(false, x) => {
-                *self = match x.len() {
-                    0 => NullNode,
-                    1 => x.first().unwrap().clone(),
-                    _ => rep,
-                };
-            }
             _ => *self = rep,
         }
     }
@@ -158,13 +222,81 @@ impl MangleAST for Vec<ASTNode> {
     fn to_u8v(self, escc: u8) -> Vec<u8> {
         self.into_iter().map(|i| i.to_u8v(escc)).flatten().collect()
     }
+    fn get_complexity(&self) -> usize {
+        use rayon::prelude::*;
+        self.par_iter().map(|i| i.get_complexity()).sum()
+    }
+    fn simplify(&mut self) {
+        use crate::sharpen::Classify;
+        use rayon::prelude::*;
+        self.par_iter_mut().for_each(|i| i.simplify());
+        *self = self
+            .into_iter()
+            .filter(|i| {
+                use ASTNode::*;
+                match *i {
+                    NullNode => false,
+                    _ => true,
+                }
+            })
+            .classify(|_, i| i.get_class(), ASTNodeClass::NullNode)
+            .into_par_iter()
+            .map(|(d, i)| {
+                use ASTNode::*;
+                match d {
+                    ASTNodeClass::NullNode => vec![NullNode],
+                    _ if i.len() < 2 => i,
+                    ASTNodeClass::Space => vec![Space(
+                        i.into_iter()
+                            .map(|j| {
+                                if let Space(x) = j {
+                                    x
+                                } else {
+                                    unreachable!();
+                                }
+                            })
+                            .flatten()
+                            .collect(),
+                    )],
+                    ASTNodeClass::Constant => vec![Constant(
+                        i.into_iter()
+                            .map(|j| {
+                                if let Constant(x) = j {
+                                    x
+                                } else {
+                                    unreachable!();
+                                }
+                            })
+                            .flatten()
+                            .collect(),
+                    )],
+                    ASTNodeClass::Grouped(false) => vec![Grouped(
+                        false,
+                        Box::new(
+                            i.into_iter()
+                                .map(|j| {
+                                    if let Grouped(_, x) = j {
+                                        *x
+                                    } else {
+                                        unreachable!();
+                                    }
+                                })
+                                .flatten()
+                                .collect(),
+                        ),
+                    )],
+                    _ => i,
+                }
+            })
+            .flatten()
+            .collect::<Vec<ASTNode>>();
+    }
     fn replace(&mut self, from: &[u8], to: &[ASTNode]) {
         if from.len() == 0 {
             return;
         }
-        for i in self.iter_mut() {
-            i.replace(from, to);
-        }
+        use rayon::prelude::*;
+        self.par_iter_mut().for_each(|i| i.replace(from, to));
     }
 }
 
@@ -229,5 +361,58 @@ impl ToAST for Sections {
         }
 
         top
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_replace() {
+        use ASTNode::*;
+        let mut ast = Grouped(false, Box::new(vec![Constant(vec![0, 1, 2, 3])]));
+        ast.replace(
+            &vec![1, 2],
+            &[Grouped(false, Box::new(vec![Constant(vec![4])]))],
+        );
+        assert_eq!(
+            ast,
+            Grouped(
+                false,
+                Box::new(vec![Grouped(
+                    false,
+                    Box::new(vec![
+                        Constant(vec![0]),
+                        Grouped(
+                            false,
+                            Box::new(vec![Grouped(false, Box::new(vec![Constant(vec![4])]))])
+                        ),
+                        Constant(vec![3])
+                    ])
+                )])
+            )
+        );
+    }
+
+    #[test]
+    fn test_simplify() {
+        use ASTNode::*;
+        let mut ast = Grouped(
+            false,
+            Box::new(vec![Grouped(
+                false,
+                Box::new(vec![
+                    Constant(vec![0]),
+                    Grouped(
+                        false,
+                        Box::new(vec![Grouped(false, Box::new(vec![Constant(vec![4])]))]),
+                    ),
+                    Constant(vec![3]),
+                ]),
+            )]),
+        );
+        ast.simplify();
+        assert_eq!(ast, Constant(vec![0, 4, 3]));
     }
 }

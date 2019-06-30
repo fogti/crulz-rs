@@ -1,3 +1,5 @@
+extern crate rayon;
+
 #[macro_use]
 mod hlparser;
 mod interp;

@@ -6,4 +6,5 @@ edition = "2018"
 
 [dependencies]
 boolinator = "2.4"
+rayon = "1.1"
 readfilez = "0.1"
