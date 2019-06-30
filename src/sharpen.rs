@@ -40,7 +40,7 @@ where
     fn classify<TC, FnT>(self, fnx: FnT) -> Vec<(TC, Vec<TT>)>
     where
         TC: Copy + Default + std::cmp::PartialEq,
-        FnT: FnMut(TC, &TT) -> TC;
+        FnT: FnMut(&TT) -> TC;
 }
 
 impl<InT, ITT, TT> Classify<TT> for InT
@@ -52,7 +52,7 @@ where
     fn classify<TC, FnT>(self, mut fnx: FnT) -> Vec<(TC, Vec<TT>)>
     where
         TC: Copy + Default + std::cmp::PartialEq,
-        FnT: FnMut(TC, &TT) -> TC,
+        FnT: FnMut(&TT) -> TC,
     {
         let mut parts = Vec::<(TC, Vec<TT>)>::new();
         let start_ccl: TC = std::default::Default::default();
@@ -62,7 +62,7 @@ where
         for i in self
             .into_iter()
             .map(|x| {
-                let new_ccl = fnx(ccl, &x);
+                let new_ccl = fnx(&x);
                 let is_change = new_ccl != ccl;
                 ccl = new_ccl;
                 use boolinator::Boolinator;
@@ -95,7 +95,7 @@ mod tests {
     #[test]
     fn test_clsf0() {
         let input: Vec<u8> = vec![0, 0, 1, 1, 2, 2, 3, 0, 5, 5, 5];
-        let res = input.classify(|_ocl, &curc| curc);
+        let res = input.classify(|&curc| curc);
         assert_eq!(
             res,
             vec![
@@ -121,7 +121,7 @@ mod tests {
             Some(0),
             None,
         ];
-        let res = input.classify(|_, curo| curo.is_some());
+        let res = input.classify(|curo| curo.is_some());
         assert_eq!(
             res,
             vec![
@@ -143,7 +143,7 @@ mod tests {
             Some(vec![2]),
             None,
         ];
-        let res = input.classify(|_, curo| curo.is_some());
+        let res = input.classify(|curo| curo.is_some());
         assert_eq!(
             res,
             vec![

@@ -17,26 +17,36 @@ pub enum ASTNode {
 
 // do NOT "use ASTNode::*;" here, because sometimes we want to "use ASTNodeClass::*;"
 
-pub trait MangleAST {
+pub trait MangleAST: Sized {
     type LiftT;
     // lift the AST one level up (ASTNode -> VAN || VAN -> ASTNode),
-    // used as helper for MangleAST::simplify and others
+    // used as helper for MangleAST::simplify_inplace and others
     // to convert to the appropriate datatype
     fn lift_ast(self) -> Self::LiftT;
 
     fn to_u8v(self, escc: u8) -> Vec<u8>;
 
-    /// helper for MangleAST::simplify
+    /// helper for MangleAST::simplify_inplace
     fn get_complexity(&self) -> usize;
 
     /// this cleanup up the AST, opposite of two lift_ast invocations
-    fn simplify(&mut self);
+    fn simplify_inplace(&mut self);
 
     /// this replace function works on byte-basis and honours ASTNode boundaries
-    fn replace(&mut self, from: &[u8], to: &ASTNode);
+    fn replace_inplace(&mut self, from: &[u8], to: &ASTNode);
+
+    fn simplify(mut self) -> Self {
+        self.simplify_inplace();
+        self
+    }
+
+    fn replace(mut self, from: &[u8], to: &ASTNode) -> Self {
+        self.replace_inplace(from, to);
+        self
+    }
 }
 
-// helper for MangleAST::simplify
+// helper for MangleAST::simplify_inplace
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum ASTNodeClass {
     NullNode,
@@ -110,7 +120,7 @@ impl MangleAST for ASTNode {
         }
     }
 
-    fn simplify(&mut self) {
+    fn simplify_inplace(&mut self) {
         use ASTNode::*;
         let mut cplx = self.get_complexity();
         let mut self_ = self.clone();
@@ -128,14 +138,13 @@ impl MangleAST for ASTNode {
                             *x = z;
                         } else {
                             // swap it back, omit clone
-                            x[0] = y;
-                            x[0].simplify();
+                            x[0] = y.simplify();
                         }
                     } else {
                         self_ = y;
                     }
                 }
-                _ => x.simplify(),
+                _ => x.simplify_inplace(),
             }
             let new_cplx = self_.get_complexity();
             if new_cplx >= cplx {
@@ -146,7 +155,7 @@ impl MangleAST for ASTNode {
         *self = self_;
     }
 
-    fn replace(&mut self, from: &[u8], to: &ASTNode) {
+    fn replace_inplace(&mut self, from: &[u8], to: &ASTNode) {
         let flen = from.len();
         if flen == 0 {
             return;
@@ -154,53 +163,19 @@ impl MangleAST for ASTNode {
         use ASTNode::*;
         match self {
             Constant(ref x) => {
-                let start = from[0];
                 let mut skp: usize = 0;
                 *self = x
-                    .classify(|d: bool, &i| {
-                        if !d {
-                            // from currently not found
-                            if i == start {
-                                skp = 1;
-                                return true;
-                            }
-                        } else {
-                            // currently inside from
-                            if skp == flen {
-                                skp = 0;
-                            } else if i == from[skp] {
-                                skp += 1;
-                                return true;
-                            }
-                        }
-                        false
+                    .classify(|&i| {
+                        let ret = skp != flen && i == from[skp];
+                        skp = if ret { skp + 1 } else { 0 };
+                        ret
                     })
                     .into_par_iter()
                     .map(|(d, i)| {
-                        // replace matches with 'None'
-                        use boolinator::Boolinator;
-                        (!(d && i.len() == flen)).as_some(i)
-                    })
-                    // TODO: the following line shouldn't be needed, but classify currently needs it
-                    .collect::<Vec<_>>()
-                    .classify(|_, i| i.is_some())
-                    .into_par_iter()
-                    .map(|(d, i)| {
-                        if d {
-                            // 'Some'
-                            Constant(
-                                i.into_par_iter()
-                                    .map(|j| j.unwrap_or(vec![]))
-                                    .flatten()
-                                    .collect(),
-                            )
+                        if d && i.len() == flen {
+                            to.clone()
                         } else {
-                            // 'None'
-                            std::iter::repeat(to)
-                                .take(i.len())
-                                .map(|i| i.clone())
-                                .collect::<Vec<_>>()
-                                .lift_ast()
+                            Constant(i)
                         }
                     })
                     .collect::<Vec<_>>()
@@ -208,7 +183,7 @@ impl MangleAST for ASTNode {
             }
             Grouped(is_strict, x) => {
                 let mut xt = x.clone();
-                xt.replace(from, to);
+                xt.replace_inplace(from, to);
                 *self = Grouped(*is_strict, xt);
             }
             CmdEval(cmd, args) => {
@@ -225,7 +200,7 @@ impl MangleAST for ASTNode {
 
                 // mangle args
                 let mut args = args.clone();
-                args.replace(from, to);
+                args.replace_inplace(from, to);
                 *self = CmdEval(cmd, args);
             }
             // we ignore spaces
@@ -246,22 +221,14 @@ impl MangleAST for Vec<ASTNode> {
     fn get_complexity(&self) -> usize {
         self.par_iter().map(|i| i.get_complexity()).sum()
     }
-    fn simplify(&mut self) {
-        self.par_iter_mut().for_each(|i| i.simplify());
+    fn simplify_inplace(&mut self) {
+        self.par_iter_mut().for_each(|i| i.simplify_inplace());
         *self = self
-            .into_iter()
-            .filter(|i| {
-                use ASTNode::*;
-                match *i {
-                    NullNode => false,
-                    Grouped(false, ref x) if x.is_empty() => false,
-                    Space(ref x) | Constant(ref x) if x.is_empty() => false,
-                    _ => true,
-                }
-            })
-            .classify(|_, i| {
+            .classify(|i| {
                 use ASTNodeClass::*;
                 match &i {
+                    ASTNode::Grouped(false, ref x) if x.is_empty() => NullNode,
+                    ASTNode::Space(ref x) | ASTNode::Constant(ref x) if x.is_empty() => NullNode,
                     ASTNode::Space(_) => Space,
                     ASTNode::Constant(_) => Constant,
                     ASTNode::Grouped(s, _) => Grouped(*s),
@@ -316,13 +283,21 @@ impl MangleAST for Vec<ASTNode> {
                 }
             })
             .flatten()
+            .filter(|i| {
+                if let ASTNode::NullNode = i {
+                    false
+                } else {
+                    true
+                }
+            })
             .collect::<Vec<ASTNode>>();
     }
-    fn replace(&mut self, from: &[u8], to: &ASTNode) {
+    fn replace_inplace(&mut self, from: &[u8], to: &ASTNode) {
         if from.len() == 0 {
             return;
         }
-        self.par_iter_mut().for_each(|i| i.replace(from, to));
+        self.par_iter_mut()
+            .for_each(|i| i.replace_inplace(from, to));
     }
 }
 
@@ -369,19 +344,14 @@ impl ToAST for Sections {
                     Box::new(crossparse!(parse_whole, &section[1..slen - 1], escc)),
                 ));
             } else {
-                top.par_extend(
-                    section
-                        .classify(|_ocl, i| i.is_space())
-                        .into_par_iter()
-                        .map(|i| {
-                            let (ccl, x) = i;
-                            if ccl {
-                                ASTNode::Space(x)
-                            } else {
-                                ASTNode::Constant(x)
-                            }
-                        }),
-                );
+                top.par_extend(section.classify(|i| i.is_space()).into_par_iter().map(|i| {
+                    let (ccl, x) = i;
+                    if ccl {
+                        ASTNode::Space(x)
+                    } else {
+                        ASTNode::Constant(x)
+                    }
+                }));
             }
         }
 
@@ -398,17 +368,13 @@ mod tests {
     fn test_replace() {
         use ASTNode::*;
         let mut ast = vec![Constant(vec![0, 1, 2, 3])].lift_ast();
-        ast.replace(&vec![1, 2], &Constant(vec![4]));
+        ast.replace_inplace(&vec![1, 2], &Constant(vec![4]));
         assert_eq!(
             ast,
-            vec![
-                Constant(vec![0]),
-                Constant(vec![4]).lift_ast().lift_ast(),
-                Constant(vec![3])
-            ]
-            .lift_ast()
-            .lift_ast()
-            .lift_ast()
+            vec![Constant(vec![0]), Constant(vec![4]), Constant(vec![3])]
+                .lift_ast()
+                .lift_ast()
+                .lift_ast()
         );
     }
 
@@ -429,7 +395,7 @@ mod tests {
                 ]),
             )]),
         );
-        ast.simplify();
+        ast.simplify_inplace();
         assert_eq!(ast, Constant(vec![0, 4, 3]));
     }
 
@@ -437,11 +403,7 @@ mod tests {
     fn bench_replace(b: &mut test::Bencher) {
         use ASTNode::*;
         let ast = vec![Constant(vec![0, 1, 2, 3])].lift_ast();
-        b.iter(|| {
-            let mut ast = ast.clone();
-            ast.replace(&vec![1, 2], &Constant(vec![4]));
-            ast
-        });
+        b.iter(|| ast.clone().replace(&vec![1, 2], &Constant(vec![4])));
     }
 
     #[bench]
@@ -461,10 +423,6 @@ mod tests {
                 ]),
             )]),
         );
-        b.iter(|| {
-            let mut ast = ast.clone();
-            ast.simplify();
-            ast
-        });
+        b.iter(|| ast.clone().simplify());
     }
 }
