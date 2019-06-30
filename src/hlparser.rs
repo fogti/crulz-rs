@@ -14,16 +14,20 @@ pub enum ASTNode {
 }
 
 pub trait MangleAST {
+    type LiftT;
+    fn lift_ast(self) -> Self::LiftT;
+
     fn to_u8v(self, escc: u8) -> Vec<u8>;
 
     /// helper for MangleAST::simplify
     fn get_complexity(&self) -> usize;
 
-    /// this cleanup up the AST
+    /// this cleanup up the AST, opposite of lift_ast
     fn simplify(&mut self);
 
     /// this replace function works on byte-basis and honours ASTNode boundaries
     fn replace(&mut self, from: &[u8], to: &[ASTNode]);
+
 }
 
 // helper for MangleAST::simplify
@@ -55,9 +59,21 @@ impl ASTNode {
             ASTNode::CmdEval(_, _) => CmdEval,
         }
     }
+
+    pub fn get_constant(&self) -> Option<&Vec<u8>> {
+        match &self {
+            ASTNode::Constant(x) => Some(x),
+            _ => None,
+        }
+    }
 }
 
 impl MangleAST for ASTNode {
+    type LiftT = Vec<ASTNode>;
+    fn lift_ast(self) -> Self::LiftT {
+        vec![self]
+    }
+
     fn to_u8v(self, escc: u8) -> Vec<u8> {
         use ASTNode::*;
         match self {
@@ -106,7 +122,7 @@ impl MangleAST for ASTNode {
         use ASTNode::*;
         let mut cplx = self.get_complexity();
         loop {
-            let mut rep = NullNode;
+            let rep;
             match &self {
                 Grouped(false, x) => {
                     let mut y = x.clone();
@@ -135,7 +151,7 @@ impl MangleAST for ASTNode {
         }
         use rayon::prelude::*;
         use ASTNode::*;
-        let mut rep = NullNode;
+        let rep;
         match self {
             Constant(ref x) => {
                 let start = *from.first().unwrap();
@@ -144,26 +160,24 @@ impl MangleAST for ASTNode {
                 rep = Grouped(
                     false,
                     Box::new(
-                        x.classify(
-                            |d: bool, &i| {
-                                if !d {
-                                    // from currently not found
-                                    if i == start {
-                                        skp = 1;
-                                        return true;
-                                    }
-                                } else {
-                                    // currently inside from
-                                    if skp == flen {
-                                        skp = 0;
-                                    } else if i == from[skp] {
-                                        skp = skp + 1;
-                                        return true;
-                                    }
+                        x.classify(|d: bool, &i| {
+                            if !d {
+                                // from currently not found
+                                if i == start {
+                                    skp = 1;
+                                    return true;
                                 }
-                                false
-                            },
-                        )
+                            } else {
+                                // currently inside from
+                                if skp == flen {
+                                    skp = 0;
+                                } else if i == from[skp] {
+                                    skp = skp + 1;
+                                    return true;
+                                }
+                            }
+                            false
+                        })
                         .into_par_iter()
                         .map(|(d, i)| {
                             // replace matches with 'None'
@@ -224,6 +238,11 @@ impl MangleAST for ASTNode {
 }
 
 impl MangleAST for Vec<ASTNode> {
+    type LiftT = ASTNode;
+    fn lift_ast(self) -> Self::LiftT {
+        ASTNode::Grouped(false, Box::new(self))
+    }
+
     fn to_u8v(self, escc: u8) -> Vec<u8> {
         self.into_iter().map(|i| i.to_u8v(escc)).flatten().collect()
     }
@@ -249,9 +268,9 @@ impl MangleAST for Vec<ASTNode> {
             .map(|(d, i)| {
                 use ASTNode::*;
                 match d {
-                    ASTNodeClass::NullNode => vec![NullNode],
+                    ASTNodeClass::NullNode => NullNode.lift_ast(),
                     _ if i.len() < 2 => i,
-                    ASTNodeClass::Space => vec![Space(
+                    ASTNodeClass::Space => Space(
                         i.into_iter()
                             .map(|j| {
                                 if let Space(x) = j {
@@ -262,8 +281,8 @@ impl MangleAST for Vec<ASTNode> {
                             })
                             .flatten()
                             .collect(),
-                    )],
-                    ASTNodeClass::Constant => vec![Constant(
+                    ).lift_ast(),
+                    ASTNodeClass::Constant => Constant(
                         i.into_iter()
                             .map(|j| {
                                 if let Constant(x) = j {
@@ -274,10 +293,8 @@ impl MangleAST for Vec<ASTNode> {
                             })
                             .flatten()
                             .collect(),
-                    )],
-                    ASTNodeClass::Grouped(false) => vec![Grouped(
-                        false,
-                        Box::new(
+                    ).lift_ast(),
+                    ASTNodeClass::Grouped(false) =>
                             i.into_iter()
                                 .map(|j| {
                                     if let Grouped(_, x) = j {
@@ -287,9 +304,9 @@ impl MangleAST for Vec<ASTNode> {
                                     }
                                 })
                                 .flatten()
-                                .collect(),
-                        ),
-                    )],
+                                .collect::<Vec<_>>()
+                                .lift_ast()
+                                .lift_ast(),
                     _ => i,
                 }
             })
@@ -376,7 +393,7 @@ mod tests {
     #[test]
     fn test_replace() {
         use ASTNode::*;
-        let mut ast = Grouped(false, Box::new(vec![Constant(vec![0, 1, 2, 3])]));
+        let mut ast = vec![Constant(vec![0, 1, 2, 3])].lift_ast();
         ast.replace(
             &vec![1, 2],
             &[Grouped(false, Box::new(vec![Constant(vec![4])]))],
@@ -411,11 +428,11 @@ mod tests {
                     Constant(vec![0]),
                     Grouped(
                         false,
-                        Box::new(vec![Grouped(false, Box::new(vec![Constant(vec![4])]))]),
+                        Box::new(vec![Grouped(false, Box::new(vec![Constant(vec![4])]))])
                     ),
-                    Constant(vec![3]),
-                ]),
-            )]),
+                    Constant(vec![3])
+                ])
+            )])
         );
         ast.simplify();
         assert_eq!(ast, Constant(vec![0, 4, 3]));

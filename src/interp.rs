@@ -20,22 +20,45 @@ mod builtin {
 
     macro_rules! define_blti {
         ($name:ident,$args:ident,$ctx:ident, $body:tt) => {
-            pub(super) fn $name($args: &VAN, $ctx: &mut EvalContext) -> Option<VAN> $body
+            pub(super) fn $name($args: &VAN, mut $ctx: &mut EvalContext) -> Option<VAN> $body
         }
     }
 
     define_blti!(def, args, ctx, {
         use crate::sharpen::Classify;
-/*
-        let asorted = args.iter().classify(|d, &i| {
-            if let Space(_) = i {
-                false
-            } else {
-                true
-            }
-        });
-*/
-        None
+        let mut unspaced = args
+            .classify(|_, i| {
+                if let ASTNode::Space(_) = i {
+                    false
+                } else {
+                    true
+                }
+            })
+            .into_iter()
+            .filter(|(d, _)| *d)
+            .map(|(_, i)| i)
+            .flatten()
+            .collect::<Vec<_>>();
+        if unspaced.len() != 3 {
+            return None;
+        }
+        let mut unpack = |x: &mut ASTNode| {
+            let mut y = std::mem::replace(x, ASTNode::NullNode).eval(&mut ctx).lift_ast();
+            y.simplify();
+            y
+        };
+        use std::str;
+        let varname = unpack(&mut unspaced[0]);
+        let argc = unpack(&mut unspaced[1]);
+        let varname = str::from_utf8(varname.get_constant()?).expect("expected utf8 varname").to_owned();
+        let argc: usize = str::from_utf8(argc.get_constant()?).expect("expected utf8 argc").parse().expect("expected number as argc");
+        let value = {
+            let mut y = std::mem::replace(&mut unspaced[2], ASTNode::NullNode).lift_ast();
+            y.simplify();
+            y
+        };
+        ctx.defs.insert(Cow::from(varname), InterpValue::Data(argc, value));
+        Some(vec![])
     });
 }
 
@@ -65,7 +88,7 @@ fn eval_cmd(cmd: &str, args: &VAN, mut ctx: &mut EvalContext) -> Option<VAN> {
     let val = ctx.defs.get(&Cow::from(cmd))?;
     use InterpValue::*;
     match &val {
-        BuiltIn(x) => x(&args, &mut ctx),
+        BuiltIn(x) => x(args, &mut ctx),
         Data(0, x) => Some(x.clone()),
         Data(n, x) => {
             if args.len() < *n {
