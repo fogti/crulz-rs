@@ -158,7 +158,7 @@ fn run_parser<'a>(escc: u8, fnx: Box<dyn FnOnce(&mut LLParser) -> Vec<Vec<u8>> +
         .flatten()
         .map(|section| {
             assert!(!section.is_empty());
-            if *section.first().unwrap() == escc {
+            if section[0] == escc {
                 (true, section[2..section.len() - 1].to_vec())
             } else {
                 (false, section)

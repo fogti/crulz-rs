@@ -70,9 +70,8 @@ impl MangleAST for ASTNode {
     fn to_u8v(self, escc: u8) -> Vec<u8> {
         use ASTNode::*;
         match self {
-            NullNode => Vec::new(),
-            Space(x) => x,
-            Constant(x) => x,
+            NullNode => vec![],
+            Space(x) | Constant(x) => x,
             Grouped(is_strict, elems) => {
                 let mut inner = elems.to_u8v(escc);
                 let mut ret = Vec::<u8>::with_capacity(2 + inner.len());
@@ -105,7 +104,7 @@ impl MangleAST for ASTNode {
         use ASTNode::*;
         match &self {
             NullNode => 0,
-            Constant(x) | Space(x) => 1 + x.len(),
+            Space(x) | Constant(x) => 1 + x.len(),
             Grouped(_, x) => 2 + x.get_complexity(),
             CmdEval(cmd, x) => 1 + cmd.len() + x.get_complexity(),
         }
@@ -114,42 +113,37 @@ impl MangleAST for ASTNode {
     fn simplify(&mut self) {
         use ASTNode::*;
         let mut cplx = self.get_complexity();
-        loop {
-            let rep;
-            match &self {
-                Grouped(false, x) => {
-                    let mut y = x.clone();
-                    y.simplify();
-                    rep = match y.len() {
-                        0 => NullNode,
-                        1 => y.first().unwrap().clone(),
-                        _ => Grouped(false, y),
-                    };
+        let mut self_ = self.clone();
+        while let Grouped(is_strict, ref mut x) = &mut self_ {
+            x.simplify();
+            match x.len() {
+                0 => {
+                    if !*is_strict {
+                        self_ = NullNode;
+                    }
                 }
-                Grouped(true, x) => {
-                    let mut y = *x.clone();
-                    y.simplify();
-                    rep = Grouped(
-                        true,
-                        Box::new(if y.len() == 1 {
-                            match y.first().unwrap() {
-                                Grouped(_, x) => *x.clone(),
-                                _ => y,
-                            }
+                1 => {
+                    let y = std::mem::replace(&mut x[0], ASTNode::NullNode);
+                    if *is_strict {
+                        if let Grouped(_, z) = y {
+                            *x = z;
                         } else {
-                            y
-                        }),
-                    );
+                            // swap it back
+                            x[0] = y;
+                        }
+                    } else {
+                        self_ = y;
+                    }
                 }
-                _ => return,
+                _ => {}
             }
-            let new_cplx = rep.get_complexity();
+            let new_cplx = self_.get_complexity();
             if new_cplx >= cplx {
                 break;
             }
-            *self = rep;
             cplx = new_cplx;
         }
+        *self = self_;
     }
 
     fn replace(&mut self, from: &[u8], to: &ASTNode) {
@@ -158,12 +152,11 @@ impl MangleAST for ASTNode {
             return;
         }
         use ASTNode::*;
-        let rep;
         match self {
             Constant(ref x) => {
-                let start = *from.first().unwrap();
+                let start = from[0];
                 let mut skp: usize = 0;
-                rep = x
+                *self = x
                     .classify(|d: bool, &i| {
                         if !d {
                             // from currently not found
@@ -197,7 +190,7 @@ impl MangleAST for ASTNode {
                             // 'Some'
                             Constant(
                                 i.into_par_iter()
-                                    .map(|j| j.unwrap_or(Vec::new()))
+                                    .map(|j| j.unwrap_or(vec![]))
                                     .flatten()
                                     .collect(),
                             )
@@ -217,7 +210,6 @@ impl MangleAST for ASTNode {
                 let mut xt = x.clone();
                 xt.replace(from, to);
                 *self = Grouped(*is_strict, xt);
-                return;
             }
             CmdEval(cmd, args) => {
                 let mut cmd = cmd.clone();
@@ -235,14 +227,9 @@ impl MangleAST for ASTNode {
                 let mut args = args.clone();
                 args.replace(from, to);
                 *self = CmdEval(cmd, args);
-                return;
             }
             // we ignore spaces
-            _ => return,
-        }
-        match &rep {
-            NullNode => return,
-            _ => *self = rep,
+            _ => {}
         }
     }
 }
@@ -268,8 +255,7 @@ impl MangleAST for Vec<ASTNode> {
                 match *i {
                     NullNode => false,
                     Grouped(false, ref x) if x.is_empty() => false,
-                    Constant(ref x) if x.is_empty() => false,
-                    Space(ref x) if x.is_empty() => false,
+                    Space(ref x) | Constant(ref x) if x.is_empty() => false,
                     _ => true,
                 }
             })
@@ -377,7 +363,7 @@ impl ToAST for Sections {
                         .to_owned(),
                     Box::new(crossparse!(parse_whole, rest, escc)),
                 ));
-            } else if *section.first().unwrap() == 40 && *section.last().unwrap() == 41 {
+            } else if section[0] == 40 && *section.last().unwrap() == 41 {
                 top.push(ASTNode::Grouped(
                     true,
                     Box::new(crossparse!(parse_whole, &section[1..slen - 1], escc)),
