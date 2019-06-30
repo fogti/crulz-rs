@@ -128,7 +128,7 @@ impl MangleAST for ASTNode {
                         if let Grouped(_, z) = y {
                             *x = z;
                         } else {
-                            // swap it back
+                            // swap it back, omit clone
                             x[0] = y;
                         }
                     } else {
@@ -392,6 +392,7 @@ impl ToAST for Sections {
 #[cfg(test)]
 mod tests {
     use super::*;
+    extern crate test;
 
     #[test]
     fn test_replace() {
@@ -430,5 +431,29 @@ mod tests {
         );
         ast.simplify();
         assert_eq!(ast, Constant(vec![0, 4, 3]));
+    }
+
+    #[bench]
+    fn bench_simplify(b: &mut test::Bencher) {
+        use ASTNode::*;
+        let ast = Grouped(
+            false,
+            Box::new(vec![Grouped(
+                false,
+                Box::new(vec![
+                    Constant(vec![0]),
+                    Grouped(
+                        false,
+                        Box::new(vec![Grouped(false, Box::new(vec![Constant(vec![4])]))]),
+                    ),
+                    Constant(vec![3]),
+                ]),
+            )]),
+        );
+        b.iter(|| {
+            let mut ast = ast.clone();
+            ast.simplify();
+            ast
+        });
     }
 }

@@ -1,3 +1,5 @@
+#![cfg_attr(test, feature(test))]
+
 extern crate clap;
 extern crate rayon;
 
