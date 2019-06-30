@@ -434,6 +434,17 @@ mod tests {
     }
 
     #[bench]
+    fn bench_replace(b: &mut test::Bencher) {
+        use ASTNode::*;
+        let ast = vec![Constant(vec![0, 1, 2, 3])].lift_ast();
+        b.iter(|| {
+            let mut ast = ast.clone();
+            ast.replace(&vec![1, 2], &Constant(vec![4]));
+            ast
+        });
+    }
+
+    #[bench]
     fn bench_simplify(b: &mut test::Bencher) {
         use ASTNode::*;
         let ast = Grouped(
