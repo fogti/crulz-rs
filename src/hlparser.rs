@@ -22,7 +22,7 @@ pub trait MangleAST {
     /// helper for MangleAST::simplify
     fn get_complexity(&self) -> usize;
 
-    /// this cleanup up the AST, opposite of lift_ast
+    /// this cleanup up the AST, opposite of two lift_ast invocations
     fn simplify(&mut self);
 
     /// this replace function works on byte-basis and honours ASTNode boundaries
@@ -46,19 +46,6 @@ impl std::default::Default for ASTNodeClass {
 }
 
 impl ASTNode {
-    fn get_class(&self) -> ASTNodeClass {
-        use ASTNodeClass::*;
-        match &self {
-            ASTNode::NullNode => NullNode,
-            // allow early reduction
-            ASTNode::Grouped(false, x) if x.is_empty() => NullNode,
-            ASTNode::Space(_) => Space,
-            ASTNode::Constant(_) => Constant,
-            ASTNode::Grouped(s, _) => Grouped(*s),
-            ASTNode::CmdEval(_, _) => CmdEval,
-        }
-    }
-
     pub fn get_constant(&self) -> Option<&Vec<u8>> {
         match &self {
             ASTNode::Constant(x) => Some(x),
@@ -112,8 +99,8 @@ impl MangleAST for ASTNode {
         match &self {
             NullNode => 0,
             Constant(x) | Space(x) => 1 + x.len(),
-            Grouped(_, x) => 2 + x.len(),
-            CmdEval(cmd, x) => 1 + cmd.len() + x.len(),
+            Grouped(_, x) => 2 + x.get_complexity(),
+            CmdEval(cmd, x) => 1 + cmd.len() + x.get_complexity(),
         }
     }
 
@@ -132,13 +119,28 @@ impl MangleAST for ASTNode {
                         _ => Grouped(false, y),
                     };
                 }
+                Grouped(true, x) => {
+                    let mut y = *x.clone();
+                    y.simplify();
+                    rep = Grouped(
+                        true,
+                        Box::new(if y.len() == 1 {
+                            match y.first().unwrap() {
+                                Grouped(_, x) => *x.clone(),
+                                _ => y,
+                            }
+                        } else {
+                            y
+                        }),
+                    );
+                }
                 _ => return,
             }
-            *self = rep;
-            let new_cplx = self.get_complexity();
+            let new_cplx = rep.get_complexity();
             if new_cplx >= cplx {
                 break;
             }
+            *self = rep;
             cplx = new_cplx;
         }
     }
@@ -156,74 +158,81 @@ impl MangleAST for ASTNode {
                 let start = *from.first().unwrap();
                 let mut skp: usize = 0;
                 use crate::sharpen::Classify;
-                rep = Grouped(
-                    false,
-                    Box::new(
-                        x.classify(|d: bool, &i| {
-                            if !d {
-                                // from currently not found
-                                if i == start {
-                                    skp = 1;
-                                    return true;
-                                }
-                            } else {
-                                // currently inside from
-                                if skp == flen {
-                                    skp = 0;
-                                } else if i == from[skp] {
-                                    skp = skp + 1;
-                                    return true;
-                                }
+                rep = x
+                    .classify(|d: bool, &i| {
+                        if !d {
+                            // from currently not found
+                            if i == start {
+                                skp = 1;
+                                return true;
                             }
-                            false
-                        })
-                        .into_par_iter()
-                        .map(|(d, i)| {
-                            // replace matches with 'None'
-                            use boolinator::Boolinator;
-                            (!(d && i.len() == flen)).as_some(i)
-                        })
-                        .collect::<Vec<_>>()
-                        .classify(|_, i| i.is_some())
-                        .into_par_iter()
-                        .map(|(d, i)| {
-                            if d {
-                                // 'Some'
-                                Constant(
-                                    i.into_iter()
-                                        .map(|j| j.unwrap_or(Vec::new()))
-                                        .flatten()
-                                        .collect(),
-                                )
-                            } else {
-                                // 'None'
-                                Grouped(
-                                    false,
-                                    Box::new(
-                                        std::iter::repeat(to)
-                                            .take(i.len())
-                                            .flatten()
-                                            .map(|i| i.clone())
-                                            .collect::<Vec<_>>(),
-                                    ),
-                                )
+                        } else {
+                            // currently inside from
+                            if skp == flen {
+                                skp = 0;
+                            } else if i == from[skp] {
+                                skp += 1;
+                                return true;
                             }
-                        })
-                        .collect::<Vec<ASTNode>>(),
-                    ),
-                );
+                        }
+                        false
+                    })
+                    .into_par_iter()
+                    .map(|(d, i)| {
+                        // replace matches with 'None'
+                        use boolinator::Boolinator;
+                        (!(d && i.len() == flen)).as_some(i)
+                    })
+                    // TODO: the following line shouldn't be needed, but classify currently needs it
+                    .collect::<Vec<_>>()
+                    .classify(|_, i| i.is_some())
+                    .into_par_iter()
+                    .map(|(d, i)| {
+                        if d {
+                            // 'Some'
+                            Constant(
+                                i.into_iter()
+                                    .map(|j| j.unwrap_or(Vec::new()))
+                                    .flatten()
+                                    .collect(),
+                            )
+                        } else {
+                            // 'None'
+                            std::iter::repeat(to)
+                                .take(i.len())
+                                .flatten()
+                                .map(|i| i.clone())
+                                .collect::<Vec<_>>()
+                                .lift_ast()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .lift_ast();
             }
-            Grouped(is_strict, ref mut x) => {
+            Grouped(is_strict, x) => {
                 let mut xt = x.clone();
                 xt.replace(from, to);
                 *self = Grouped(*is_strict, xt);
                 return;
             }
-            CmdEval(cmd, ref mut args) => {
-                // TODO: mangle cmd
-                let mut xt = args.clone();
-                xt.replace(from, to);
-                *self = CmdEval(cmd.clone(), xt);
+            CmdEval(cmd, args) => {
+                let mut cmd = cmd.clone();
+                // mangle cmd
+                if to.len() == 1 {
+                    if let Constant(to2) = &to[0] {
+                        use std::str;
+                        if let Ok(from2) = str::from_utf8(from) {
+                            if let Ok(to3) = str::from_utf8(&to2) {
+                                cmd = cmd.replace(from2, to3);
+                            }
+                        }
+                    }
+                }
+
+                // mangle args
+                let mut args = args.clone();
+                args.replace(from, to);
+                *self = CmdEval(cmd, args);
                 return;
             }
             // we ignore spaces
@@ -259,10 +268,20 @@ impl MangleAST for Vec<ASTNode> {
                 use ASTNode::*;
                 match *i {
                     NullNode => false,
+                    Grouped(false, ref x) if x.is_empty() => false,
                     _ => true,
                 }
             })
-            .classify(|_, i| i.get_class())
+            .classify(|_, i| {
+                use ASTNodeClass::*;
+                match &i {
+                    ASTNode::Space(_) => Space,
+                    ASTNode::Constant(_) => Constant,
+                    ASTNode::Grouped(s, _) => Grouped(*s),
+                    ASTNode::CmdEval(_, _) => CmdEval,
+                    _ => NullNode,
+                }
+            })
             .into_par_iter()
             .map(|(d, i)| {
                 use ASTNode::*;

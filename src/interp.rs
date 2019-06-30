@@ -138,5 +138,7 @@ impl Eval for VAN {
 
 pub fn eval(data: VAN) -> VAN {
     let mut ctx = EvalContext::new();
-    data.eval(&mut ctx)
+    let mut ret = data.eval(&mut ctx);
+    ret.simplify();
+    ret
 }
