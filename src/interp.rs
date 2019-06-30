@@ -17,9 +17,26 @@ struct EvalContext {
 
 mod builtin {
     use super::*;
-    pub(super) fn def(args: &VAN, ctx: &mut EvalContext) -> Option<VAN> {
-        None
+
+    macro_rules! define_blti {
+        ($name:ident,$args:ident,$ctx:ident, $body:tt) => {
+            pub(super) fn $name($args: &VAN, $ctx: &mut EvalContext) -> Option<VAN> $body
+        }
     }
+
+    define_blti!(def, args, ctx, {
+        use crate::sharpen::Classify;
+/*
+        let asorted = args.iter().classify(|d, &i| {
+            if let Space(_) = i {
+                false
+            } else {
+                true
+            }
+        });
+*/
+        None
+    });
 }
 
 fn register_builtin_(
@@ -44,19 +61,21 @@ impl EvalContext {
     }
 }
 
-fn eval_cmd(val: InterpValue, args: &VAN, mut ctx: &mut EvalContext) -> Option<VAN> {
+fn eval_cmd(cmd: &str, args: &VAN, mut ctx: &mut EvalContext) -> Option<VAN> {
+    let val = ctx.defs.get(&Cow::from(cmd))?;
     use InterpValue::*;
-    match val {
+    match &val {
         BuiltIn(x) => x(&args, &mut ctx),
-        Data(0, x) => Some(x),
+        Data(0, x) => Some(x.clone()),
         Data(n, x) => {
-            if args.len() < n {
+            if args.len() < *n {
                 return None;
             }
-            let mut tmp = x;
-            for i in (0..n).rev() {
+            let mut tmp = x.clone();
+            for i in (0..*n).rev() {
                 tmp.replace(format!("${}", i).as_bytes(), &args[i].clone().eval(ctx));
             }
+            tmp.simplify();
             Some(tmp)
         }
     }
@@ -69,10 +88,8 @@ trait Eval {
 impl Eval for ASTNode {
     fn eval(self, mut ctx: &mut EvalContext) -> VAN {
         if let ASTNode::CmdEval(cmd, args) = &self {
-            if let Some(x) = ctx.defs.get(&Cow::from(cmd)) {
-                if let Some(y) = eval_cmd(x.clone(), args, &mut ctx) {
-                    return y;
-                }
+            if let Some(x) = eval_cmd(cmd, args, &mut ctx) {
+                return x;
             }
         }
         vec![self]

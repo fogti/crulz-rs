@@ -37,9 +37,9 @@ where
     // This function splits the input(self) at every change of the return value of fnx
     // signature of fnx := fn fnx(ccl: u32, curc: u8) -> u32 (new ccl)
     // This function is a special variant of the TwoVec methods
-    fn classify<TC, FnT>(self, fnx: FnT, start_ccl: TC) -> Vec<(TC, Vec<TT>)>
+    fn classify<TC, FnT>(self, fnx: FnT) -> Vec<(TC, Vec<TT>)>
     where
-        TC: Copy + std::cmp::PartialEq,
+        TC: Copy + Default + std::cmp::PartialEq,
         FnT: FnMut(TC, &TT) -> TC;
 }
 
@@ -49,14 +49,15 @@ where
     ITT: std::ops::Deref<Target = TT>,
     TT: Clone,
 {
-    fn classify<TC, FnT>(self, mut fnx: FnT, start_ccl: TC) -> Vec<(TC, Vec<TT>)>
+    fn classify<TC, FnT>(self, mut fnx: FnT) -> Vec<(TC, Vec<TT>)>
     where
-        TC: Copy + std::cmp::PartialEq,
+        TC: Copy + Default + std::cmp::PartialEq,
         FnT: FnMut(TC, &TT) -> TC,
     {
         let mut parts = Vec::<(TC, Vec<TT>)>::new();
+        let start_ccl: TC = std::default::Default::default();
         let mut last = (start_ccl, Vec::<TT>::new());
-        let mut ccl: TC = start_ccl;
+        let mut ccl = start_ccl;
 
         for i in self
             .into_iter()
@@ -94,7 +95,7 @@ mod tests {
     #[test]
     fn test_clsf0() {
         let input: Vec<u8> = vec![0, 0, 1, 1, 2, 2, 3, 0, 5, 5, 5];
-        let res = input.classify(|_ocl, &curc| curc, 0);
+        let res = input.classify(|_ocl, &curc| curc);
         assert_eq!(
             res,
             vec![
@@ -120,7 +121,7 @@ mod tests {
             Some(0),
             None,
         ];
-        let res = input.classify(|_, curo| curo.is_some(), true);
+        let res = input.classify(|_, curo| curo.is_some());
         assert_eq!(
             res,
             vec![
@@ -142,7 +143,7 @@ mod tests {
             Some(vec![2]),
             None,
         ];
-        let res = input.classify(|_, curo| curo.is_some(), true);
+        let res = input.classify(|_, curo| curo.is_some());
         assert_eq!(
             res,
             vec![

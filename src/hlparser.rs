@@ -36,6 +36,12 @@ enum ASTNodeClass {
     CmdEval,
 }
 
+impl std::default::Default for ASTNodeClass {
+    fn default() -> Self {
+        ASTNodeClass::NullNode
+    }
+}
+
 impl ASTNode {
     fn get_class(&self) -> ASTNodeClass {
         use ASTNodeClass::*;
@@ -139,7 +145,7 @@ impl MangleAST for ASTNode {
                     false,
                     Box::new(
                         x.classify(
-                            |d, &i| {
+                            |d: bool, &i| {
                                 if !d {
                                     // from currently not found
                                     if i == start {
@@ -157,7 +163,6 @@ impl MangleAST for ASTNode {
                                 }
                                 false
                             },
-                            false,
                         )
                         .into_par_iter()
                         .map(|(d, i)| {
@@ -166,7 +171,7 @@ impl MangleAST for ASTNode {
                             (!(d && i.len() == flen)).as_some(i)
                         })
                         .collect::<Vec<_>>()
-                        .classify(|_, i| i.is_some(), true)
+                        .classify(|_, i| i.is_some())
                         .into_par_iter()
                         .map(|(d, i)| {
                             if d {
@@ -239,7 +244,7 @@ impl MangleAST for Vec<ASTNode> {
                     _ => true,
                 }
             })
-            .classify(|_, i| i.get_class(), ASTNodeClass::NullNode)
+            .classify(|_, i| i.get_class())
             .into_par_iter()
             .map(|(d, i)| {
                 use ASTNode::*;
@@ -346,7 +351,7 @@ impl ToAST for Sections {
                 use crate::sharpen::Classify;
                 top.extend(
                     section
-                        .classify(|_ocl, i| i.is_space(), false)
+                        .classify(|_ocl, i| i.is_space())
                         .into_iter()
                         .map(|i| {
                             let (ccl, x) = i;
