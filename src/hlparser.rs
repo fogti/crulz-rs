@@ -1,4 +1,6 @@
 use crate::llparser::Sections;
+use crate::sharpen::Classify;
+use rayon::prelude::*;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ASTNode {
@@ -13,8 +15,13 @@ pub enum ASTNode {
     CmdEval(String, Box<Vec<ASTNode>>),
 }
 
+// do NOT "use ASTNode::*;" here, because sometimes we want to "use ASTNodeClass::*;"
+
 pub trait MangleAST {
     type LiftT;
+    // lift the AST one level up (ASTNode -> VAN || VAN -> ASTNode),
+    // used as helper for MangleAST::simplify and others
+    // to convert to the appropriate datatype
     fn lift_ast(self) -> Self::LiftT;
 
     fn to_u8v(self, escc: u8) -> Vec<u8>;
@@ -150,14 +157,12 @@ impl MangleAST for ASTNode {
         if flen == 0 {
             return;
         }
-        use rayon::prelude::*;
         use ASTNode::*;
         let rep;
         match self {
             Constant(ref x) => {
                 let start = *from.first().unwrap();
                 let mut skp: usize = 0;
-                use crate::sharpen::Classify;
                 rep = x
                     .classify(|d: bool, &i| {
                         if !d {
@@ -191,7 +196,7 @@ impl MangleAST for ASTNode {
                         if d {
                             // 'Some'
                             Constant(
-                                i.into_iter()
+                                i.into_par_iter()
                                     .map(|j| j.unwrap_or(Vec::new()))
                                     .flatten()
                                     .collect(),
@@ -255,12 +260,9 @@ impl MangleAST for Vec<ASTNode> {
         self.into_iter().map(|i| i.to_u8v(escc)).flatten().collect()
     }
     fn get_complexity(&self) -> usize {
-        use rayon::prelude::*;
         self.par_iter().map(|i| i.get_complexity()).sum()
     }
     fn simplify(&mut self) {
-        use crate::sharpen::Classify;
-        use rayon::prelude::*;
         self.par_iter_mut().for_each(|i| i.simplify());
         *self = self
             .into_iter()
@@ -289,7 +291,7 @@ impl MangleAST for Vec<ASTNode> {
                     ASTNodeClass::NullNode => NullNode.lift_ast(),
                     _ if i.len() < 2 => i,
                     ASTNodeClass::Space => Space(
-                        i.into_iter()
+                        i.into_par_iter()
                             .map(|j| {
                                 if let Space(x) = j {
                                     x
@@ -302,7 +304,7 @@ impl MangleAST for Vec<ASTNode> {
                     )
                     .lift_ast(),
                     ASTNodeClass::Constant => Constant(
-                        i.into_iter()
+                        i.into_par_iter()
                             .map(|j| {
                                 if let Constant(x) = j {
                                     x
@@ -315,7 +317,7 @@ impl MangleAST for Vec<ASTNode> {
                     )
                     .lift_ast(),
                     ASTNodeClass::Grouped(false) => i
-                        .into_iter()
+                        .into_par_iter()
                         .map(|j| {
                             if let Grouped(_, x) = j {
                                 *x
@@ -324,9 +326,7 @@ impl MangleAST for Vec<ASTNode> {
                             }
                         })
                         .flatten()
-                        .collect::<Vec<_>>()
-                        .lift_ast()
-                        .lift_ast(),
+                        .collect::<Vec<_>>(),
                     _ => i,
                 }
             })
@@ -337,7 +337,6 @@ impl MangleAST for Vec<ASTNode> {
         if from.len() == 0 {
             return;
         }
-        use rayon::prelude::*;
         self.par_iter_mut().for_each(|i| i.replace(from, to));
     }
 }
@@ -385,11 +384,10 @@ impl ToAST for Sections {
                     Box::new(crossparse!(parse_whole, &section[1..slen - 1], escc)),
                 ));
             } else {
-                use crate::sharpen::Classify;
-                top.extend(
+                top.par_extend(
                     section
                         .classify(|_ocl, i| i.is_space())
-                        .into_iter()
+                        .into_par_iter()
                         .map(|i| {
                             let (ccl, x) = i;
                             if ccl {

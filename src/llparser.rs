@@ -63,7 +63,7 @@ impl LLParser {
         // we should be able to parse non-utf8 input,
         // as long as the parts starting with ESCC '(' ( and ending with ')')
         // are valid utf8
-        for &i in input.iter() {
+        for &i in input {
             use LLParserMode::*;
             let mut r2normal = false;
             match self.pm {
@@ -140,15 +140,6 @@ impl IsSpace for u8 {
     fn is_space(self) -> bool {
         match self {
             9 | 10 | 11 | 12 | 13 | 32 => true,
-            _ => false,
-        }
-    }
-}
-
-impl IsSpace for char {
-    fn is_space(self) -> bool {
-        match self {
-            '\t' | '\n' | '\x0b' | '\x0c' | '\r' | ' ' => true,
             _ => false,
         }
     }
