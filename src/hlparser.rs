@@ -33,7 +33,7 @@ pub trait MangleAST {
     fn simplify(&mut self);
 
     /// this replace function works on byte-basis and honours ASTNode boundaries
-    fn replace(&mut self, from: &[u8], to: &[ASTNode]);
+    fn replace(&mut self, from: &[u8], to: &ASTNode);
 }
 
 // helper for MangleAST::simplify
@@ -152,7 +152,7 @@ impl MangleAST for ASTNode {
         }
     }
 
-    fn replace(&mut self, from: &[u8], to: &[ASTNode]) {
+    fn replace(&mut self, from: &[u8], to: &ASTNode) {
         let flen = from.len();
         if flen == 0 {
             return;
@@ -205,7 +205,6 @@ impl MangleAST for ASTNode {
                             // 'None'
                             std::iter::repeat(to)
                                 .take(i.len())
-                                .flatten()
                                 .map(|i| i.clone())
                                 .collect::<Vec<_>>()
                                 .lift_ast()
@@ -223,13 +222,11 @@ impl MangleAST for ASTNode {
             CmdEval(cmd, args) => {
                 let mut cmd = cmd.clone();
                 // mangle cmd
-                if to.len() == 1 {
-                    if let Constant(to2) = &to[0] {
-                        use std::str;
-                        if let Ok(from2) = str::from_utf8(from) {
-                            if let Ok(to3) = str::from_utf8(&to2) {
-                                cmd = cmd.replace(from2, to3);
-                            }
+                if let Constant(to2) = &to {
+                    use std::str;
+                    if let Ok(from2) = str::from_utf8(from) {
+                        if let Ok(to3) = str::from_utf8(&to2) {
+                            cmd = cmd.replace(from2, to3);
                         }
                     }
                 }
@@ -271,6 +268,8 @@ impl MangleAST for Vec<ASTNode> {
                 match *i {
                     NullNode => false,
                     Grouped(false, ref x) if x.is_empty() => false,
+                    Constant(ref x) if x.is_empty() => false,
+                    Space(ref x) if x.is_empty() => false,
                     _ => true,
                 }
             })
@@ -333,7 +332,7 @@ impl MangleAST for Vec<ASTNode> {
             .flatten()
             .collect::<Vec<ASTNode>>();
     }
-    fn replace(&mut self, from: &[u8], to: &[ASTNode]) {
+    fn replace(&mut self, from: &[u8], to: &ASTNode) {
         if from.len() == 0 {
             return;
         }
@@ -412,7 +411,7 @@ mod tests {
     fn test_replace() {
         use ASTNode::*;
         let mut ast = vec![Constant(vec![0, 1, 2, 3])].lift_ast();
-        ast.replace(&vec![1, 2], &[Constant(vec![4])]);
+        ast.replace(&vec![1, 2], &Constant(vec![4]));
         assert_eq!(
             ast,
             vec![

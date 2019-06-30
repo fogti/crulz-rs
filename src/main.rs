@@ -60,7 +60,7 @@ fn main() {
 
     let input_file = matches.value_of("INPUT").unwrap().to_owned();
 
-    let trs = crossparse!(llparser::file2secs, input_file, escc);
+    let mut trs = crossparse!(llparser::file2secs, input_file, escc);
 
     if vblvl > 1 {
         printerrln_xs!("crulz: AST before evaluation:");
@@ -68,7 +68,7 @@ fn main() {
         printerrln_xs!("----");
     }
 
-    let trs = interp::eval(trs);
+    interp::eval(&mut trs);
 
     if vblvl > 0 {
         printerrln_xs!("crulz: AST after evaluation:");

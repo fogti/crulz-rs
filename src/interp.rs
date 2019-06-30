@@ -5,8 +5,8 @@ type VAN = Vec<ASTNode>;
 
 #[derive(Clone)]
 enum InterpValue {
-    BuiltIn(fn(&VAN, &mut EvalContext) -> Option<VAN>),
-    Data(usize, VAN),
+    BuiltIn(fn(&VAN, &mut EvalContext) -> Option<ASTNode>),
+    Data(usize, ASTNode),
 }
 
 type DefinesMap = HashMap<Cow<'static, str>, InterpValue>;
@@ -20,7 +20,7 @@ mod builtin {
 
     macro_rules! define_blti {
         ($name:ident,$args:ident,$ctx:ident, $body:tt) => {
-            pub(super) fn $name($args: &VAN, mut $ctx: &mut EvalContext) -> Option<VAN> $body
+            pub(super) fn $name($args: &VAN, mut $ctx: &mut EvalContext) -> Option<ASTNode> $body
         }
     }
 
@@ -43,9 +43,8 @@ mod builtin {
             return None;
         }
         let mut unpack = |x: &mut ASTNode| {
-            let mut y = std::mem::replace(x, ASTNode::NullNode)
-                .eval(&mut ctx)
-                .lift_ast();
+            let mut y = std::mem::replace(x, ASTNode::NullNode);
+            y.eval(&mut ctx);
             y.simplify();
             y
         };
@@ -60,20 +59,20 @@ mod builtin {
             .parse()
             .expect("expected number as argc");
         let value = {
-            let mut y = std::mem::replace(&mut unspaced[2], ASTNode::NullNode).lift_ast();
+            let mut y = std::mem::replace(&mut unspaced[2], ASTNode::NullNode);
             y.simplify();
             y
         };
         ctx.defs
             .insert(Cow::from(varname), InterpValue::Data(argc, value));
-        Some(vec![])
+        Some(ASTNode::NullNode)
     });
 }
 
 fn register_builtin_(
     defs: &mut DefinesMap,
     name: &'static str,
-    fnx: fn(&VAN, &mut EvalContext) -> Option<VAN>,
+    fnx: fn(&VAN, &mut EvalContext) -> Option<ASTNode>,
 ) {
     defs.insert(Cow::from(name), InterpValue::BuiltIn(fnx));
 }
@@ -92,7 +91,7 @@ impl EvalContext {
     }
 }
 
-fn eval_cmd(cmd: &str, args: &VAN, mut ctx: &mut EvalContext) -> Option<VAN> {
+fn eval_cmd(cmd: &str, args: &VAN, mut ctx: &mut EvalContext) -> Option<ASTNode> {
     let val = ctx.defs.get(&Cow::from(cmd))?;
     use InterpValue::*;
     match &val {
@@ -104,7 +103,9 @@ fn eval_cmd(cmd: &str, args: &VAN, mut ctx: &mut EvalContext) -> Option<VAN> {
             }
             let mut tmp = x.clone();
             for i in (0..*n).rev() {
-                tmp.replace(format!("${}", i).as_bytes(), &args[i].clone().eval(ctx));
+                let mut argi = args[i].clone();
+                argi.eval(ctx);
+                tmp.replace(format!("${}", i).as_bytes(), &argi);
             }
             tmp.simplify();
             Some(tmp)
@@ -113,32 +114,29 @@ fn eval_cmd(cmd: &str, args: &VAN, mut ctx: &mut EvalContext) -> Option<VAN> {
 }
 
 trait Eval {
-    fn eval(self, ctx: &mut EvalContext) -> VAN;
+    fn eval(&mut self, ctx: &mut EvalContext);
 }
 
 impl Eval for ASTNode {
-    fn eval(self, mut ctx: &mut EvalContext) -> VAN {
+    fn eval(&mut self, mut ctx: &mut EvalContext) {
         if let ASTNode::CmdEval(cmd, args) = &self {
             if let Some(x) = eval_cmd(cmd, args, &mut ctx) {
-                return x;
+                *self = x;
             }
         }
-        vec![self]
     }
 }
 
 impl Eval for VAN {
-    fn eval(self, mut ctx: &mut EvalContext) -> VAN {
-        self.into_iter()
-            .map(|x| x.eval(&mut ctx))
-            .flatten()
-            .collect()
+    fn eval(&mut self, mut ctx: &mut EvalContext) {
+        for i in self {
+            i.eval(&mut ctx);
+        }
     }
 }
 
-pub fn eval(data: VAN) -> VAN {
+pub fn eval(data: &mut VAN) {
     let mut ctx = EvalContext::new();
-    let mut ret = data.eval(&mut ctx);
-    ret.simplify();
-    ret
+    data.eval(&mut ctx);
+    data.simplify();
 }
