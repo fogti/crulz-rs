@@ -414,26 +414,17 @@ mod tests {
     fn test_replace() {
         use ASTNode::*;
         let mut ast = vec![Constant(vec![0, 1, 2, 3])].lift_ast();
-        ast.replace(
-            &vec![1, 2],
-            &[Grouped(false, Box::new(vec![Constant(vec![4])]))],
-        );
+        ast.replace(&vec![1, 2], &[Constant(vec![4])]);
         assert_eq!(
             ast,
-            Grouped(
-                false,
-                Box::new(vec![Grouped(
-                    false,
-                    Box::new(vec![
-                        Constant(vec![0]),
-                        Grouped(
-                            false,
-                            Box::new(vec![Grouped(false, Box::new(vec![Constant(vec![4])]))])
-                        ),
-                        Constant(vec![3])
-                    ])
-                )])
-            )
+            vec![
+                Constant(vec![0]),
+                Constant(vec![4]).lift_ast().lift_ast(),
+                Constant(vec![3])
+            ]
+            .lift_ast()
+            .lift_ast()
+            .lift_ast()
         );
     }
 
