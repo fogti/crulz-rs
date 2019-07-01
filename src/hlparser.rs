@@ -66,7 +66,7 @@ impl std::default::Default for ASTNodeClass {
 }
 
 impl ASTNode {
-    pub fn get_constant(&self) -> Option<&Vec<u8>> {
+    pub fn constant(&self) -> Option<&Vec<u8>> {
         match &self {
             ASTNode::Constant(x) => Some(x),
             _ => None,
@@ -76,6 +76,7 @@ impl ASTNode {
 
 impl MangleAST for ASTNode {
     type LiftT = Vec<ASTNode>;
+    #[inline]
     fn lift_ast(self) -> Self::LiftT {
         vec![self]
     }
@@ -157,6 +158,7 @@ impl MangleAST for ASTNode {
         self
     }
 
+    #[inline]
     fn replace_inplace(&mut self, from: &[u8], to: &ASTNode) {
         let tmp = std::mem::replace(self, Default::default());
         *self = tmp.replace(from, to);
@@ -209,13 +211,16 @@ impl MangleAST for ASTNode {
 
 impl MangleAST for Vec<ASTNode> {
     type LiftT = ASTNode;
+    #[inline]
     fn lift_ast(self) -> Self::LiftT {
         ASTNode::Grouped(false, Box::new(self))
     }
 
+    #[inline]
     fn to_u8v(self, escc: u8) -> Vec<u8> {
         self.into_iter().map(|i| i.to_u8v(escc)).flatten().collect()
     }
+    #[inline]
     fn get_complexity(&self) -> usize {
         self.par_iter().map(|i| i.get_complexity()).sum()
     }
@@ -296,6 +301,7 @@ impl MangleAST for Vec<ASTNode> {
         self.par_iter_mut()
             .for_each(|i| i.replace_inplace(from, to));
     }
+    #[inline]
     fn replace(mut self, from: &[u8], to: &ASTNode) -> Self {
         self.replace_inplace(from, to);
         self

@@ -32,12 +32,13 @@ mod builtin {
     use super::*;
 
     macro_rules! define_blti {
-        ($name:ident,$args:ident,$ctx:ident, $body:tt) => {
-            pub(super) fn $name(mut $args: VAN, mut $ctx: &mut EvalContext) -> Option<ASTNode> $body
+        ($name:ident($args:tt, $ctx:ident) $body:tt) => {
+            #[allow(unused_parens)]
+            pub(super) fn $name($args: VAN, mut $ctx: &mut EvalContext) -> Option<ASTNode> $body
         }
     }
 
-    define_blti!(def, args, ctx, {
+    define_blti!(def((mut args), ctx) {
         if args.len() != 3 {
             return None;
         }
@@ -49,10 +50,10 @@ mod builtin {
         use std::str;
         let varname = unpack(&mut args[0]);
         let argc = unpack(&mut args[1]);
-        let varname = str::from_utf8(varname.get_constant()?)
+        let varname = str::from_utf8(varname.constant()?)
             .expect("expected utf8 varname")
             .to_owned();
-        let argc: usize = str::from_utf8(argc.get_constant()?)
+        let argc: usize = str::from_utf8(argc.constant()?)
             .expect("expected utf8 argc")
             .parse()
             .expect("expected number as argc");
@@ -60,6 +61,24 @@ mod builtin {
         ctx.defs
             .insert(Cow::from(varname), InterpValue::Data(argc, value));
         Some(ASTNode::NullNode)
+    });
+
+    define_blti!(add(args, ctx) {
+        if args.len() != 2 {
+            return None;
+        }
+        let unpacked = args.into_iter().filter_map(|mut x| {
+            x.eval(&mut ctx);
+            x.simplify_inplace();
+            Some(std::str::from_utf8(x.constant()?).ok()?
+            .parse::<i64>()
+            .expect("expected number as @param"))
+        }).collect::<Vec<_>>();
+        if unpacked.len() != 2 {
+            // if any argument wasn't evaluated --> dropped --> different len()
+            return None;
+        }
+        Some(ASTNode::Constant((unpacked[0] + unpacked[1]).to_string().into_bytes()))
     });
 }
 
@@ -71,16 +90,18 @@ fn register_builtin_(
     defs.insert(Cow::from(name), InterpValue::BuiltIn(fnx));
 }
 
-macro_rules! register_builtin {
-    ($defs:ident, $name:expr, $fn:ident) => {
-        register_builtin_(&mut $defs, $name, builtin::$fn);
+macro_rules! register_builtins {
+    ($defs:ident, $($fn:ident),+) => {
+        $(
+        register_builtin_(&mut $defs, stringify!($fn), builtin::$fn);
+        )+
     };
 }
 
 impl EvalContext {
     fn new() -> Self {
         let mut defs = DefinesMap::new();
-        register_builtin!(defs, "def", def);
+        register_builtins!(defs, def, add);
         Self { defs }
     }
 }
@@ -131,8 +152,16 @@ impl Eval for VAN {
 
 pub fn eval(data: &mut VAN) {
     let mut ctx = EvalContext::new();
-    data.eval(&mut ctx);
-    data.simplify_inplace();
+    let mut cplx = data.get_complexity();
+    loop {
+        data.eval(&mut ctx);
+        data.simplify_inplace();
+        let new_cplx = data.get_complexity();
+        if new_cplx == cplx {
+            break;
+        }
+        cplx = new_cplx;
+    }
 }
 
 #[cfg(test)]
