@@ -17,7 +17,7 @@ pub enum ASTNode {
 
 // do NOT "use ASTNode::*;" here, because sometimes we want to "use ASTNodeClass::*;"
 
-pub trait MangleAST: Sized {
+pub trait MangleAST: Sized + Default {
     type LiftT;
     // lift the AST one level up (ASTNode -> VAN || VAN -> ASTNode),
     // used as helper for MangleAST::simplify_inplace and others
@@ -29,21 +29,18 @@ pub trait MangleAST: Sized {
     /// helper for MangleAST::simplify_inplace
     fn get_complexity(&self) -> usize;
 
-    /// this cleanup up the AST, opposite of two lift_ast invocations
-    fn simplify_inplace(&mut self);
+    fn simplify_inplace(&mut self) {
+        let tmp = std::mem::replace(self, Default::default());
+        *self = tmp.simplify();
+    }
 
-    /// this replace function works on byte-basis and honours ASTNode boundaries
     fn replace_inplace(&mut self, from: &[u8], to: &ASTNode);
 
-    fn simplify(mut self) -> Self {
-        self.simplify_inplace();
-        self
-    }
+    /// this cleanup up the AST, opposite of two lift_ast invocations
+    fn simplify(self) -> Self;
 
-    fn replace(mut self, from: &[u8], to: &ASTNode) -> Self {
-        self.replace_inplace(from, to);
-        self
-    }
+    /// this replace function works on byte-basis and honours ASTNode boundaries
+    fn replace(self, from: &[u8], to: &ASTNode) -> Self;
 }
 
 // helper for MangleAST::simplify_inplace
@@ -54,6 +51,12 @@ enum ASTNodeClass {
     Constant,
     Grouped(bool),
     CmdEval,
+}
+
+impl std::default::Default for ASTNode {
+    fn default() -> Self {
+        ASTNode::NullNode
+    }
 }
 
 impl std::default::Default for ASTNodeClass {
@@ -120,15 +123,14 @@ impl MangleAST for ASTNode {
         }
     }
 
-    fn simplify_inplace(&mut self) {
+    fn simplify(mut self) -> Self {
         use ASTNode::*;
         let mut cplx = self.get_complexity();
-        let mut self_ = self.clone();
-        while let Grouped(is_strict, ref mut x) = &mut self_ {
+        while let Grouped(is_strict, ref mut x) = &mut self {
             match x.len() {
                 0 => {
                     if !*is_strict {
-                        self_ = NullNode;
+                        self = NullNode;
                     }
                 }
                 1 => {
@@ -141,51 +143,49 @@ impl MangleAST for ASTNode {
                             x[0] = y.simplify();
                         }
                     } else {
-                        self_ = y;
+                        self = y;
                     }
                 }
                 _ => x.simplify_inplace(),
             }
-            let new_cplx = self_.get_complexity();
+            let new_cplx = self.get_complexity();
             if new_cplx >= cplx {
                 break;
             }
             cplx = new_cplx;
         }
-        *self = self_;
+        self
     }
 
     fn replace_inplace(&mut self, from: &[u8], to: &ASTNode) {
-        let flen = from.len();
-        if flen == 0 {
-            return;
-        }
+        let tmp = std::mem::replace(self, Default::default());
+        *self = tmp.replace(from, to);
+    }
+
+    fn replace(self, from: &[u8], to: &ASTNode) -> Self {
         use ASTNode::*;
         match self {
+            _ if from.is_empty() => self,
             Constant(ref x) => {
+                let flen = from.len();
                 let mut skp: usize = 0;
-                *self = x
-                    .classify(|&i| {
-                        let ret = skp != flen && i == from[skp];
-                        skp = if ret { skp + 1 } else { 0 };
-                        ret
-                    })
-                    .into_par_iter()
-                    .map(|(d, i)| {
-                        if d && i.len() == flen {
-                            to.clone()
-                        } else {
-                            Constant(i)
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .lift_ast();
+                x.classify(|&i| {
+                    let ret = skp != flen && i == from[skp];
+                    skp = if ret { skp + 1 } else { 0 };
+                    ret
+                })
+                .into_par_iter()
+                .map(|(d, i)| {
+                    if d && i.len() == flen {
+                        to.clone()
+                    } else {
+                        Constant(i)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .lift_ast()
             }
-            Grouped(is_strict, x) => {
-                let mut xt = x.clone();
-                xt.replace_inplace(from, to);
-                *self = Grouped(*is_strict, xt);
-            }
+            Grouped(is_strict, x) => Grouped(is_strict, Box::new(x.clone().replace(from, to))),
             CmdEval(cmd, args) => {
                 let mut cmd = cmd.clone();
                 // mangle cmd
@@ -199,12 +199,10 @@ impl MangleAST for ASTNode {
                 }
 
                 // mangle args
-                let mut args = args.clone();
-                args.replace_inplace(from, to);
-                *self = CmdEval(cmd, args);
+                CmdEval(cmd, Box::new(args.clone().replace(from, to)))
             }
             // we ignore spaces
-            _ => {}
+            _ => self,
         }
     }
 }
@@ -221,76 +219,75 @@ impl MangleAST for Vec<ASTNode> {
     fn get_complexity(&self) -> usize {
         self.par_iter().map(|i| i.get_complexity()).sum()
     }
-    fn simplify_inplace(&mut self) {
+    fn simplify(mut self) -> Self {
         self.par_iter_mut().for_each(|i| i.simplify_inplace());
-        *self = self
-            .classify(|i| {
-                use ASTNodeClass::*;
-                match &i {
-                    ASTNode::Grouped(false, ref x) if x.is_empty() => NullNode,
-                    ASTNode::Space(ref x) | ASTNode::Constant(ref x) if x.is_empty() => NullNode,
-                    ASTNode::Space(_) => Space,
-                    ASTNode::Constant(_) => Constant,
-                    ASTNode::Grouped(s, _) => Grouped(*s),
-                    ASTNode::CmdEval(_, _) => CmdEval,
-                    _ => NullNode,
-                }
-            })
-            .into_par_iter()
-            .map(|(d, i)| {
-                use ASTNode::*;
-                match d {
-                    ASTNodeClass::NullNode => NullNode.lift_ast(),
-                    _ if i.len() < 2 => i,
-                    ASTNodeClass::Space => Space(
-                        i.into_par_iter()
-                            .map(|j| {
-                                if let Space(x) = j {
-                                    x
-                                } else {
-                                    unreachable!();
-                                }
-                            })
-                            .flatten()
-                            .collect(),
-                    )
-                    .lift_ast(),
-                    ASTNodeClass::Constant => Constant(
-                        i.into_par_iter()
-                            .map(|j| {
-                                if let Constant(x) = j {
-                                    x
-                                } else {
-                                    unreachable!();
-                                }
-                            })
-                            .flatten()
-                            .collect(),
-                    )
-                    .lift_ast(),
-                    ASTNodeClass::Grouped(false) => i
-                        .into_par_iter()
+        self.classify(|i| {
+            use ASTNodeClass::*;
+            match &i {
+                ASTNode::Grouped(false, ref x) if x.is_empty() => NullNode,
+                ASTNode::Space(ref x) | ASTNode::Constant(ref x) if x.is_empty() => NullNode,
+                ASTNode::Space(_) => Space,
+                ASTNode::Constant(_) => Constant,
+                ASTNode::Grouped(s, _) => Grouped(*s),
+                ASTNode::CmdEval(_, _) => CmdEval,
+                _ => NullNode,
+            }
+        })
+        .into_par_iter()
+        .map(|(d, i)| {
+            use ASTNode::*;
+            match d {
+                ASTNodeClass::NullNode => NullNode.lift_ast(),
+                _ if i.len() < 2 => i,
+                ASTNodeClass::Space => Space(
+                    i.into_par_iter()
                         .map(|j| {
-                            if let Grouped(_, x) = j {
-                                *x
+                            if let Space(x) = j {
+                                x
                             } else {
                                 unreachable!();
                             }
                         })
                         .flatten()
-                        .collect::<Vec<_>>(),
-                    _ => i,
-                }
-            })
-            .flatten()
-            .filter(|i| {
-                if let ASTNode::NullNode = i {
-                    false
-                } else {
-                    true
-                }
-            })
-            .collect::<Vec<ASTNode>>();
+                        .collect(),
+                )
+                .lift_ast(),
+                ASTNodeClass::Constant => Constant(
+                    i.into_par_iter()
+                        .map(|j| {
+                            if let Constant(x) = j {
+                                x
+                            } else {
+                                unreachable!();
+                            }
+                        })
+                        .flatten()
+                        .collect(),
+                )
+                .lift_ast(),
+                ASTNodeClass::Grouped(false) => i
+                    .into_par_iter()
+                    .map(|j| {
+                        if let Grouped(_, x) = j {
+                            *x
+                        } else {
+                            unreachable!();
+                        }
+                    })
+                    .flatten()
+                    .collect::<Vec<_>>(),
+                _ => i,
+            }
+        })
+        .flatten()
+        .filter(|i| {
+            if let ASTNode::NullNode = i {
+                false
+            } else {
+                true
+            }
+        })
+        .collect::<Vec<ASTNode>>()
     }
     fn replace_inplace(&mut self, from: &[u8], to: &ASTNode) {
         if from.is_empty() {
@@ -298,6 +295,10 @@ impl MangleAST for Vec<ASTNode> {
         }
         self.par_iter_mut()
             .for_each(|i| i.replace_inplace(from, to));
+    }
+    fn replace(mut self, from: &[u8], to: &ASTNode) -> Self {
+        self.replace_inplace(from, to);
+        self
     }
 }
 
@@ -367,10 +368,10 @@ mod tests {
     #[test]
     fn test_replace() {
         use ASTNode::*;
-        let mut ast = vec![Constant(vec![0, 1, 2, 3])].lift_ast();
-        ast.replace_inplace(&vec![1, 2], &Constant(vec![4]));
         assert_eq!(
-            ast,
+            vec![Constant(vec![0, 1, 2, 3])]
+                .lift_ast()
+                .replace(&vec![1, 2], &Constant(vec![4])),
             vec![Constant(vec![0]), Constant(vec![4]), Constant(vec![3])]
                 .lift_ast()
                 .lift_ast()
@@ -381,7 +382,7 @@ mod tests {
     #[test]
     fn test_simplify() {
         use ASTNode::*;
-        let mut ast = Grouped(
+        let ast = Grouped(
             false,
             Box::new(vec![Grouped(
                 false,
@@ -395,8 +396,7 @@ mod tests {
                 ]),
             )]),
         );
-        ast.simplify_inplace();
-        assert_eq!(ast, Constant(vec![0, 4, 3]));
+        assert_eq!(ast.simplify(), Constant(vec![0, 4, 3]));
     }
 
     #[bench]

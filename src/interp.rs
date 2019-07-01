@@ -94,8 +94,9 @@ fn eval_cmd(cmd: &str, mut args: VAN, mut ctx: &mut EvalContext) -> Option<ASTNo
             let mut tmp = x.clone();
             for i in (0..*n).rev() {
                 args[i].eval(ctx);
-                tmp.replace_inplace(format!("${}", i).as_bytes(), &args[i]);
-                tmp.simplify_inplace();
+                tmp = tmp
+                    .replace(format!("${}", i).as_bytes(), &args[i])
+                    .simplify();
             }
             Some(tmp)
         }

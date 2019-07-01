@@ -55,7 +55,7 @@ where
         FnT: FnMut(&TT) -> TC,
     {
         let mut parts = Vec::<(TC, Vec<TT>)>::new();
-        let start_ccl: TC = std::default::Default::default();
+        let start_ccl: TC = Default::default();
         let mut last = (start_ccl, Vec::<TT>::new());
         let mut ccl = start_ccl;
 
