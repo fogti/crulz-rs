@@ -241,44 +241,37 @@ impl MangleAST for Vec<ASTNode> {
         .into_par_iter()
         .map(|(d, i)| {
             use crate::hlparser::ASTNode::*;
+            macro_rules! mfn_unpack_unchecked {
+                ($in:pat, $out:expr) => {{
+                    |j| {
+                        if let $in = j {
+                            $out
+                        } else {
+                            unsafe { std::hint::unreachable_unchecked() }
+                        }
+                    }
+                }};
+            };
             match d {
                 ASTNodeClass::NullNode => NullNode.lift_ast(),
                 _ if i.len() < 2 => i,
                 ASTNodeClass::Space => Space(
                     i.into_par_iter()
-                        .map(|j| {
-                            if let Space(x) = j {
-                                x
-                            } else {
-                                unreachable!();
-                            }
-                        })
+                        .map(mfn_unpack_unchecked!(Space(x), x))
                         .flatten()
                         .collect(),
                 )
                 .lift_ast(),
                 ASTNodeClass::Constant => Constant(
                     i.into_par_iter()
-                        .map(|j| {
-                            if let Constant(x) = j {
-                                x
-                            } else {
-                                unreachable!();
-                            }
-                        })
+                        .map(mfn_unpack_unchecked!(Constant(x), x))
                         .flatten()
                         .collect(),
                 )
                 .lift_ast(),
                 ASTNodeClass::Grouped(false) => i
                     .into_par_iter()
-                    .map(|j| {
-                        if let Grouped(_, x) = j {
-                            *x
-                        } else {
-                            unreachable!();
-                        }
-                    })
+                    .map(mfn_unpack_unchecked!(Grouped(_, x), *x))
                     .flatten()
                     .collect::<Vec<_>>(),
                 _ => i,
