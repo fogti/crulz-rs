@@ -18,7 +18,7 @@ pub fn errmsg(s: &str) {
 
 fn main() {
     use clap::Arg;
-    use hlparser::MangleAST;
+    use crate::hlparser::MangleAST;
 
     let matches = clap::App::new("crulz")
         .version("0.0.1")

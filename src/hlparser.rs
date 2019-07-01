@@ -81,7 +81,7 @@ impl MangleAST for ASTNode {
     }
 
     fn to_u8v(self, escc: u8) -> Vec<u8> {
-        use ASTNode::*;
+        use crate::hlparser::ASTNode::*;
         match self {
             NullNode => vec![],
             Space(x) | Constant(x) => x,
@@ -114,7 +114,7 @@ impl MangleAST for ASTNode {
     }
 
     fn get_complexity(&self) -> usize {
-        use ASTNode::*;
+        use crate::hlparser::ASTNode::*;
         match &self {
             NullNode => 0,
             Space(x) | Constant(x) => 1 + x.len(),
@@ -124,7 +124,7 @@ impl MangleAST for ASTNode {
     }
 
     fn simplify(mut self) -> Self {
-        use ASTNode::*;
+        use crate::hlparser::ASTNode::*;
         let mut cplx = self.get_complexity();
         while let Grouped(is_strict, ref mut x) = &mut self {
             match x.len() {
@@ -163,7 +163,7 @@ impl MangleAST for ASTNode {
     }
 
     fn replace(self, from: &[u8], to: &ASTNode) -> Self {
-        use ASTNode::*;
+        use crate::hlparser::ASTNode::*;
         match self {
             _ if from.is_empty() => self,
             Constant(ref x) => {
@@ -222,7 +222,7 @@ impl MangleAST for Vec<ASTNode> {
     fn simplify(mut self) -> Self {
         self.par_iter_mut().for_each(|i| i.simplify_inplace());
         self.classify(|i| {
-            use ASTNodeClass::*;
+            use crate::hlparser::ASTNodeClass::*;
             match &i {
                 ASTNode::Grouped(false, ref x) if x.is_empty() => NullNode,
                 ASTNode::Space(ref x) | ASTNode::Constant(ref x) if x.is_empty() => NullNode,
@@ -235,7 +235,7 @@ impl MangleAST for Vec<ASTNode> {
         })
         .into_par_iter()
         .map(|(d, i)| {
-            use ASTNode::*;
+            use crate::hlparser::ASTNode::*;
             match d {
                 ASTNodeClass::NullNode => NullNode.lift_ast(),
                 _ if i.len() < 2 => i,
@@ -363,11 +363,11 @@ impl ToAST for Sections {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hlparser::ASTNode::*;
     extern crate test;
 
     #[test]
     fn test_replace() {
-        use ASTNode::*;
         assert_eq!(
             vec![Constant(vec![0, 1, 2, 3])]
                 .lift_ast()
@@ -381,7 +381,6 @@ mod tests {
 
     #[test]
     fn test_simplify() {
-        use ASTNode::*;
         let ast = Grouped(
             false,
             Box::new(vec![Grouped(
@@ -401,14 +400,12 @@ mod tests {
 
     #[bench]
     fn bench_replace(b: &mut test::Bencher) {
-        use ASTNode::*;
         let ast = vec![Constant(vec![0, 1, 2, 3])].lift_ast();
         b.iter(|| ast.clone().replace(&vec![1, 2], &Constant(vec![4])));
     }
 
     #[bench]
     fn bench_simplify(b: &mut test::Bencher) {
-        use ASTNode::*;
         let ast = Grouped(
             false,
             Box::new(vec![Grouped(

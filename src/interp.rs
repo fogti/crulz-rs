@@ -87,7 +87,7 @@ impl EvalContext {
 
 fn eval_cmd(cmd: &str, mut args: VAN, mut ctx: &mut EvalContext) -> Option<ASTNode> {
     let val = ctx.defs.get(&Cow::from(cmd))?;
-    use InterpValue::*;
+    use crate::interp::InterpValue::*;
     match &val {
         BuiltIn(x) => x(args, &mut ctx),
         Data(0, x) => Some(x.clone()),

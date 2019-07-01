@@ -9,9 +9,10 @@ enum LLParserMode {
     CmdN(u32),
 }
 
+use crate::llparser::LLParserMode::*;
+
 impl LLParserMode {
     fn incr(&mut self) {
-        use LLParserMode::*;
         let res = match &self {
             GroupN(x) => GroupN(x + 1),
             CmdN(x) => CmdN(x + 1),
@@ -20,7 +21,6 @@ impl LLParserMode {
         *self = res;
     }
     fn decr(&mut self) {
-        use LLParserMode::*;
         let res = match &self {
             GroupN(x) => GroupN(x - 1),
             CmdN(x) => CmdN(x - 1),
@@ -64,7 +64,6 @@ impl LLParser {
         // as long as the parts starting with ESCC '(' ( and ending with ')')
         // are valid utf8
         for &i in input {
-            use LLParserMode::*;
             let mut r2normal = false;
             match self.pm {
                 Normal | GroupN(0) => {
