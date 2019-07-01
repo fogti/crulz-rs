@@ -16,16 +16,15 @@ struct EvalContext {
 }
 
 fn args2unspaced(args: VAN) -> VAN {
-    use crate::sharpen::Classify;
-    args.classify(|i| {
-        match i {
+    use crate::sharpen::ClassifyIter;
+    args.into_iter()
+        .classify_iter(|i| match i {
             ASTNode::NullNode | ASTNode::Space(_) => false,
             _ => true,
-        }
-    }).into_iter()
-    .filter(|(d, _)| *d)
-    .map(|(_, i)| i.lift_ast().simplify())
-    .collect()
+        })
+        .filter(|(d, _)| *d)
+        .map(|(_, i)| i.lift_ast().simplify())
+        .collect()
 }
 
 mod builtin {

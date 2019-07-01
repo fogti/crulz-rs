@@ -30,9 +30,81 @@ impl<T> TwoVec<T> {
     }
 }
 
-pub trait Classify<TT>
+pub struct ClassifyIT<'a, TT, TC, FnT, IT>
 where
     TT: Clone,
+    TC: Copy + Default + std::cmp::PartialEq,
+    FnT: FnMut(&TT) -> TC,
+    IT: Iterator<Item = TT>,
+{
+    inner: &'a mut IT,
+    fnx: FnT,
+    edge: (Option<TC>, Option<TT>),
+}
+
+impl<'a, TT, TC, FnT, IT> ClassifyIT<'a, TT, TC, FnT, IT>
+where
+    TT: Clone + 'a,
+    TC: Copy + Default + std::cmp::PartialEq,
+    FnT: FnMut(&TT) -> TC,
+    IT: Iterator<Item = TT>,
+{
+    pub fn new(inner: &'a mut IT, fnx: FnT) -> Self {
+        Self {
+            inner,
+            fnx,
+            edge: (Some(Default::default()), None),
+        }
+    }
+}
+
+impl<'a, TT, TC, FnT, IT> std::iter::Iterator for ClassifyIT<'a, TT, TC, FnT, IT>
+where
+    TT: Clone + 'a,
+    TC: Copy + Default + std::cmp::PartialEq,
+    FnT: FnMut(&TT) -> TC,
+    IT: Iterator<Item = TT>,
+{
+    type Item = (TC, Vec<TT>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut ccl = self.edge.0?;
+        let mut last = Vec::<TT>::new();
+
+        if let Some(x) = &self.edge.1 {
+            last.push(x.clone());
+        }
+        let fnx = &mut self.fnx;
+        for (new_ccl, x) in self.inner.map(|x| {
+            let fnr = fnx(&x);
+            (fnr, x)
+        }) {
+            if new_ccl != ccl {
+                if last.is_empty() {
+                    ccl = new_ccl;
+                    last.push(x);
+                } else {
+                    self.edge = (Some(new_ccl), Some(x));
+                    return Some((ccl, last));
+                }
+            } else {
+                last.push(x);
+            }
+        }
+
+        // we reached the end of the inner iterator
+        self.edge = (None, None);
+        if last.is_empty() {
+            None
+        } else {
+            Some((ccl, last))
+        }
+    }
+}
+
+pub trait Classify<'a, TT>
+where
+    TT: Clone + 'a,
 {
     // This function splits the input(self) at every change of the return value of fnx
     // signature of fnx := fn fnx(ccl: u32, curc: u8) -> u32 (new ccl)
@@ -43,48 +115,46 @@ where
         FnT: FnMut(&TT) -> TC;
 }
 
-impl<InT, ITT, TT> Classify<TT> for InT
+pub trait ClassifyIter<'a, TT>
+where
+    Self: Sized + Iterator<Item = TT> + 'a,
+    TT: Clone + 'a,
+{
+    fn classify_iter<TC, FnT>(&'a mut self, fnx: FnT) -> ClassifyIT<'a, TT, TC, FnT, Self>
+    where
+        TC: Copy + Default + std::cmp::PartialEq,
+        FnT: FnMut(&TT) -> TC;
+}
+
+impl<'a, InT, ITT, TT> Classify<'a, TT> for InT
 where
     InT: IntoIterator<Item = ITT>,
-    ITT: std::ops::Deref<Target = TT>,
-    TT: Clone,
+    ITT: std::ops::Deref<Target = TT> + 'a,
+    TT: Clone + 'a,
 {
-    fn classify<TC, FnT>(self, mut fnx: FnT) -> Vec<(TC, Vec<TT>)>
+    fn classify<TC, FnT>(self, fnx: FnT) -> Vec<(TC, Vec<TT>)>
     where
         TC: Copy + Default + std::cmp::PartialEq,
         FnT: FnMut(&TT) -> TC,
     {
-        let mut parts = Vec::<(TC, Vec<TT>)>::new();
-        let start_ccl: TC = Default::default();
-        let mut last = (start_ccl, Vec::<TT>::new());
-        let mut ccl = start_ccl;
+        self.into_iter()
+            .map(|i| i.deref().clone())
+            .classify_iter(fnx)
+            .collect()
+    }
+}
 
-        for i in self
-            .into_iter()
-            .map(|x| {
-                let new_ccl = fnx(&x);
-                let is_change = new_ccl != ccl;
-                ccl = new_ccl;
-                use boolinator::Boolinator;
-                (is_change.as_some(new_ccl), Some(x.deref().clone()))
-            })
-            .chain(vec![(Some(start_ccl), None as Option<TT>)].into_iter())
-        {
-            let (pccl, pcurc) = i;
-
-            if let Some(x) = pccl {
-                let mut tmp = std::mem::replace(&mut last, (x, vec![]));
-                if !tmp.1.is_empty() {
-                    tmp.1.shrink_to_fit();
-                    parts.push(tmp);
-                }
-            }
-            if let Some(x) = pcurc {
-                last.1.push(x);
-            }
-        }
-
-        parts
+impl<'a, IT, TT> ClassifyIter<'a, TT> for IT
+where
+    Self: Sized + Iterator<Item = TT> + 'a,
+    TT: Clone + 'a,
+{
+    fn classify_iter<TC, FnT>(&'a mut self, fnx: FnT) -> ClassifyIT<'a, TT, TC, FnT, Self>
+    where
+        TC: Copy + Default + std::cmp::PartialEq,
+        FnT: FnMut(&TT) -> TC,
+    {
+        ClassifyIT::new(self, fnx)
     }
 }
 
@@ -144,6 +214,29 @@ mod tests {
             None,
         ];
         let res = input.classify(|curo| curo.is_some());
+        assert_eq!(
+            res,
+            vec![
+                (true, vec![Some(vec![0, 0, 1]), Some(vec![0, 1])]),
+                (false, vec![None, None]),
+                (true, vec![Some(vec![2])]),
+                (false, vec![None]),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_clsfit2() {
+        let input: Vec<Option<Vec<u8>>> = vec![
+            Some(vec![0, 0, 1]),
+            Some(vec![0, 1]),
+            None,
+            None,
+            Some(vec![2]),
+            None,
+        ];
+        let res =
+            ClassifyIT::new(&mut input.into_iter(), |curo| curo.is_some()).collect::<Vec<_>>();
         assert_eq!(
             res,
             vec![

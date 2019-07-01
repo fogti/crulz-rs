@@ -345,8 +345,7 @@ impl ToAST for Sections {
                     Box::new(crossparse!(parse_whole, &section[1..slen - 1], escc)),
                 ));
             } else {
-                top.par_extend(section.classify(|i| i.is_space()).into_par_iter().map(|i| {
-                    let (ccl, x) = i;
+                top.par_extend(section.classify(|i| i.is_space()).into_par_iter().map(|(ccl, x)| {
                     if ccl {
                         ASTNode::Space(x)
                     } else {
