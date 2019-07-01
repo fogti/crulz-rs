@@ -241,39 +241,26 @@ impl MangleAST for Vec<ASTNode> {
         .into_par_iter()
         .map(|(d, i)| {
             use crate::hlparser::ASTNode::*;
-            macro_rules! mfn_unpack_unchecked {
-                ($in:pat, $out:expr) => {{
-                    |j| {
-                        if let $in = j {
-                            $out
-                        } else {
-                            unsafe { std::hint::unreachable_unchecked() }
-                        }
-                    }
-                }};
+            macro_rules! recollect {
+                ($i:expr, $in:pat, $out:expr) => {
+                    $i.into_par_iter()
+                        .map(|j| {
+                            if let $in = j {
+                                $out
+                            } else {
+                                unsafe { std::hint::unreachable_unchecked() }
+                            }
+                        })
+                        .flatten()
+                        .collect()
+                };
             };
             match d {
                 ASTNodeClass::NullNode => NullNode.lift_ast(),
                 _ if i.len() < 2 => i,
-                ASTNodeClass::Space => Space(
-                    i.into_par_iter()
-                        .map(mfn_unpack_unchecked!(Space(x), x))
-                        .flatten()
-                        .collect(),
-                )
-                .lift_ast(),
-                ASTNodeClass::Constant => Constant(
-                    i.into_par_iter()
-                        .map(mfn_unpack_unchecked!(Constant(x), x))
-                        .flatten()
-                        .collect(),
-                )
-                .lift_ast(),
-                ASTNodeClass::Grouped(false) => i
-                    .into_par_iter()
-                    .map(mfn_unpack_unchecked!(Grouped(_, x), *x))
-                    .flatten()
-                    .collect::<Vec<_>>(),
+                ASTNodeClass::Space => Space(recollect!(i, Space(x), x)).lift_ast(),
+                ASTNodeClass::Constant => Constant(recollect!(i, Constant(x), x)).lift_ast(),
+                ASTNodeClass::Grouped(false) => recollect!(i, Grouped(_, x), *x),
                 _ => i,
             }
         })
@@ -320,8 +307,7 @@ impl ToAST for Sections {
     fn to_ast(self, escc: u8) -> Vec<ASTNode> {
         let mut top = Vec::<ASTNode>::new();
 
-        for i in self {
-            let (is_cmdeval, section) = i;
+        for (is_cmdeval, section) in self {
             assert!(!section.is_empty());
             let slen = section.len();
             use crate::llparser::{parse_whole, IsSpace};

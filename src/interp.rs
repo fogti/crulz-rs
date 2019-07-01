@@ -85,10 +85,6 @@ mod builtin {
             if let ASTNode::Grouped(ref mut is_strict, _) = x {
                 *is_strict = false;
             }
-            x.simplify_inplace();
-            if let ASTNode::Grouped(ref mut is_strict, _) = x {
-                *is_strict = false;
-            }
             x
         }).collect::<Vec<_>>().lift_ast().simplify())
     });
@@ -121,7 +117,7 @@ impl EvalContext {
 fn eval_cmd(cmd: &str, mut args: VAN, mut ctx: &mut EvalContext) -> Option<ASTNode> {
     let val = ctx.defs.get(&Cow::from(cmd))?;
     use crate::interp::InterpValue::*;
-    let ret = match &val {
+    match &val {
         BuiltIn(a, x) => match a {
             Some(n) if args.len() != *n => None,
             _ => x(args, &mut ctx),
@@ -140,8 +136,7 @@ fn eval_cmd(cmd: &str, mut args: VAN, mut ctx: &mut EvalContext) -> Option<ASTNo
             }
             Some(tmp)
         }
-    };
-    ret
+    }
 }
 
 trait Eval {

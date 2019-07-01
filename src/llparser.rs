@@ -145,10 +145,11 @@ impl IsSpace for u8 {
 }
 
 pub type Sections = Vec<(bool, Vec<u8>)>;
+type ParserHelperFn<'a> = Box<dyn FnOnce(&mut LLParser) -> Vec<Vec<u8>> + 'a>;
 
-fn run_parser<'a>(escc: u8, fnx: Box<dyn FnOnce(&mut LLParser) -> Vec<Vec<u8>> + 'a>) -> Sections {
+fn run_parser<'a>(escc: u8, fnx: ParserHelperFn<'a>) -> Sections {
     let mut parser = LLParser::new(escc);
-    let cls: Vec<Box<dyn FnOnce(&mut LLParser) -> Vec<Vec<u8>>>> = vec![
+    let cls: Vec<ParserHelperFn<'_>> = vec![
         fnx,
         Box::new(|parser| parser.finish().expect("unexpected EOF")),
     ];
