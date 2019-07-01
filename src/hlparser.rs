@@ -367,45 +367,33 @@ mod tests {
 
     #[test]
     fn test_simplify() {
-        let ast = Grouped(
-            false,
-            Box::new(vec![Grouped(
-                false,
-                Box::new(vec![
+        let ast = vec![
                     Constant(vec![0]),
-                    Grouped(
-                        false,
-                        Box::new(vec![Grouped(false, Box::new(vec![Constant(vec![4])]))]),
-                    ),
+                    Constant(vec![4]).lift_ast().lift_ast().lift_ast().lift_ast(),
                     Constant(vec![3]),
-                ]),
-            )]),
-        );
+            ]
+            .lift_ast()
+            .lift_ast()
+            .lift_ast();
         assert_eq!(ast.simplify(), Constant(vec![0, 4, 3]));
     }
 
     #[bench]
     fn bench_replace(b: &mut test::Bencher) {
-        let ast = vec![Constant(vec![0, 1, 2, 3])].lift_ast();
+        let ast = Constant(vec![0, 1, 2, 3]).lift_ast().lift_ast();
         b.iter(|| ast.clone().replace(&vec![1, 2], &Constant(vec![4])));
     }
 
     #[bench]
     fn bench_simplify(b: &mut test::Bencher) {
-        let ast = Grouped(
-            false,
-            Box::new(vec![Grouped(
-                false,
-                Box::new(vec![
+        let ast = vec![
                     Constant(vec![0]),
-                    Grouped(
-                        false,
-                        Box::new(vec![Grouped(false, Box::new(vec![Constant(vec![4])]))]),
-                    ),
+                    Constant(vec![4]).lift_ast().lift_ast().lift_ast().lift_ast(),
                     Constant(vec![3]),
-                ]),
-            )]),
-        );
+            ]
+            .lift_ast()
+            .lift_ast()
+            .lift_ast();
         b.iter(|| ast.clone().simplify());
     }
 }
