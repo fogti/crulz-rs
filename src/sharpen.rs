@@ -32,7 +32,7 @@ impl<T> TwoVec<T> {
 
 pub struct ClassifyIT<'a, TT, TC, FnT, IT>
 where
-    TT: Clone,
+    TT: 'a,
     TC: Copy + Default + std::cmp::PartialEq,
     FnT: FnMut(&TT) -> TC,
     IT: Iterator<Item = TT>,
@@ -44,7 +44,7 @@ where
 
 impl<'a, TT, TC, FnT, IT> ClassifyIT<'a, TT, TC, FnT, IT>
 where
-    TT: Clone + 'a,
+    TT: 'a,
     TC: Copy + Default + std::cmp::PartialEq,
     FnT: FnMut(&TT) -> TC,
     IT: Iterator<Item = TT>,
@@ -60,7 +60,7 @@ where
 
 impl<'a, TT, TC, FnT, IT> std::iter::Iterator for ClassifyIT<'a, TT, TC, FnT, IT>
 where
-    TT: Clone + 'a,
+    TT: 'a,
     TC: Copy + Default + std::cmp::PartialEq,
     FnT: FnMut(&TT) -> TC,
     IT: Iterator<Item = TT>,
@@ -71,8 +71,8 @@ where
         let mut ccl = self.edge.0?;
         let mut last = Vec::<TT>::new();
 
-        if let Some(x) = &self.edge.1 {
-            last.push(x.clone());
+        if let Some(x) = self.edge.1.take() {
+            last.push(x);
         }
         let fnx = &mut self.fnx;
         for (new_ccl, x) in self.inner.map(|x| {
@@ -104,52 +104,21 @@ where
 
 pub trait Classify<'a, TT>
 where
-    TT: Clone + 'a,
+    Self: Sized + Iterator<Item = TT> + 'a,
+    TT: 'a,
 {
-    // This function splits the input(self) at every change of the return value of fnx
-    // signature of fnx := fn fnx(ccl: u32, curc: u8) -> u32 (new ccl)
-    // This function is a special variant of the TwoVec methods
-    fn classify<TC, FnT>(self, fnx: FnT) -> Vec<(TC, Vec<TT>)>
+    fn classify<TC, FnT>(&'a mut self, fnx: FnT) -> ClassifyIT<'a, TT, TC, FnT, Self>
     where
         TC: Copy + Default + std::cmp::PartialEq,
         FnT: FnMut(&TT) -> TC;
 }
 
-pub trait ClassifyIter<'a, TT>
+impl<'a, IT, TT> Classify<'a, TT> for IT
 where
     Self: Sized + Iterator<Item = TT> + 'a,
-    TT: Clone + 'a,
+    TT: 'a,
 {
-    fn classify_iter<TC, FnT>(&'a mut self, fnx: FnT) -> ClassifyIT<'a, TT, TC, FnT, Self>
-    where
-        TC: Copy + Default + std::cmp::PartialEq,
-        FnT: FnMut(&TT) -> TC;
-}
-
-impl<'a, InT, ITT, TT> Classify<'a, TT> for InT
-where
-    InT: IntoIterator<Item = ITT>,
-    ITT: std::ops::Deref<Target = TT> + 'a,
-    TT: Clone + 'a,
-{
-    fn classify<TC, FnT>(self, fnx: FnT) -> Vec<(TC, Vec<TT>)>
-    where
-        TC: Copy + Default + std::cmp::PartialEq,
-        FnT: FnMut(&TT) -> TC,
-    {
-        self.into_iter()
-            .map(|i| i.deref().clone())
-            .classify_iter(fnx)
-            .collect()
-    }
-}
-
-impl<'a, IT, TT> ClassifyIter<'a, TT> for IT
-where
-    Self: Sized + Iterator<Item = TT> + 'a,
-    TT: Clone + 'a,
-{
-    fn classify_iter<TC, FnT>(&'a mut self, fnx: FnT) -> ClassifyIT<'a, TT, TC, FnT, Self>
+    fn classify<TC, FnT>(&'a mut self, fnx: FnT) -> ClassifyIT<'a, TT, TC, FnT, Self>
     where
         TC: Copy + Default + std::cmp::PartialEq,
         FnT: FnMut(&TT) -> TC,
@@ -161,11 +130,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    extern crate test;
 
     #[test]
     fn test_clsf0() {
         let input: Vec<u8> = vec![0, 0, 1, 1, 2, 2, 3, 0, 5, 5, 5];
-        let res = input.classify(|&curc| curc);
+        let res = input.into_iter().classify(|&curc| curc).collect::<Vec<_>>();
         assert_eq!(
             res,
             vec![
@@ -191,7 +161,7 @@ mod tests {
             Some(0),
             None,
         ];
-        let res = input.classify(|curo| curo.is_some());
+        let res = input.into_iter().classify(|curo| curo.is_some()).collect::<Vec<_>>();
         assert_eq!(
             res,
             vec![
@@ -213,7 +183,7 @@ mod tests {
             Some(vec![2]),
             None,
         ];
-        let res = input.classify(|curo| curo.is_some());
+        let res = input.into_iter().classify(|curo| curo.is_some()).collect::<Vec<_>>();
         assert_eq!(
             res,
             vec![
@@ -246,5 +216,18 @@ mod tests {
                 (false, vec![None]),
             ]
         );
+    }
+
+    #[bench]
+    fn bench_clsfit2(b: &mut test::Bencher) {
+        let input: Vec<Option<Vec<u8>>> = vec![
+            Some(vec![0, 0, 1]),
+            Some(vec![0, 1]),
+            None,
+            None,
+            Some(vec![2]),
+            None,
+        ];
+        b.iter(|| input.clone().into_iter().classify(|curo| curo.is_some()).collect::<Vec<_>>());
     }
 }

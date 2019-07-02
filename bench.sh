@@ -23,5 +23,5 @@ while read LINE; do
       mv -T "$(brp 2)" "$(brp)"
       ;;
   esac
-  cargo bench > "$(brp 2)" && cargo benchcmp --threshold 2 "$(brp)" "$(brp 2)"
+  cargo bench > "$(brp 2)" && cargo benchcmp --threshold 4 "$(brp)" "$(brp 2)"
 done

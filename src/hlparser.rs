@@ -237,17 +237,19 @@ impl MangleAST for ASTNode {
             Constant(ref x) => {
                 let flen = from.len();
                 let mut skp: usize = 0;
-                x.classify(|&i| {
+                x.into_iter()
+                .classify(|&&i| {
                     let ret = skp != flen && i == from[skp];
                     skp = if ret { skp + 1 } else { 0 };
                     ret
                 })
+                .collect::<Vec<_>>()
                 .into_par_iter()
                 .map(|(d, i)| {
                     if d && i.len() == flen {
                         to.clone()
                     } else {
-                        Constant(i)
+                        Constant(i.into_iter().map(|&i| i).collect::<Vec<_>>())
                     }
                 })
                 .collect::<Vec<_>>()
@@ -309,7 +311,9 @@ impl MangleAST for VAN {
 
     fn simplify(mut self) -> Self {
         self.par_iter_mut().for_each(|i| i.simplify_inplace());
-        self.classify(|i| {
+        self
+        .into_iter()
+        .classify(|i| {
             use crate::hlparser::ASTNodeClass::*;
             match &i {
                 ASTNode::Grouped(false, ref x) if x.is_empty() => NullNode,
@@ -321,6 +325,7 @@ impl MangleAST for VAN {
                 _ => NullNode,
             }
         })
+        .collect::<Vec<_>>()
         .into_par_iter()
         .map(|(d, i)| {
             use crate::hlparser::ASTNode::*;
@@ -411,7 +416,7 @@ impl ToAST for Sections {
                     Box::new(crossparse!(parse_whole, &section[1..slen - 1], escc)),
                 ));
             } else {
-                top.par_extend(section.classify(|i| i.is_space()).into_par_iter().map(
+                top.par_extend(section.into_iter().classify(|i| i.is_space()).collect::<Vec<_>>().into_par_iter().map(
                     |(ccl, x)| {
                         if ccl {
                             ASTNode::Space(x)
