@@ -15,13 +15,13 @@ impl LLParserMode {
     fn incr(mut self: &mut Self) {
         match &mut self {
             GroupN(ref mut x) | CmdN(ref mut x) => *x += 1,
-            _ => {},
+            _ => {}
         };
     }
     fn decr(mut self: &mut Self) {
         match &mut self {
             GroupN(ref mut x) | CmdN(ref mut x) => *x -= 1,
-            _ => {},
+            _ => {}
         };
     }
 }

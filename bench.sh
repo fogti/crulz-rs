@@ -16,6 +16,10 @@ while read LINE; do
       git diff
       continue
       ;;
+    (t|test)
+      cargo test
+      continue
+      ;;
     (q|quit)
       break
       ;;

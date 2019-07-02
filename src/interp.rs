@@ -16,7 +16,7 @@ struct EvalContext {
 fn args2unspaced(args: VAN) -> VAN {
     use rayon::prelude::*;
     crate::sharpen::classify_as_vec(args, |i| match i {
-        ASTNode::NullNode | ASTNode::Space(_) => false,
+        ASTNode::NullNode | ASTNode::Constant(false, _) => false,
         _ => true,
     })
     .into_par_iter()
@@ -47,7 +47,7 @@ mod builtin {
             // if any argument wasn't evaluated --> dropped --> different len()
             return None;
         }
-        Some(ASTNode::Constant((unpacked[0] + unpacked[1]).to_string().into_bytes()))
+        Some(ASTNode::Constant(true, (unpacked[0] + unpacked[1]).to_string().into_bytes()))
     });
 
     define_blti!(def((mut args), ctx) {
@@ -187,13 +187,13 @@ mod tests {
         use ASTNode::*;
         assert_eq!(
             args2unspaced(vec![
-                Constant(vec![0]),
-                Space(vec![0]),
-                Constant(vec![0]),
-                Constant(vec![0]),
-                Space(vec![0])
+                Constant(true, vec![0]),
+                Constant(false, vec![0]),
+                Constant(true, vec![0]),
+                Constant(true, vec![0]),
+                Constant(false, vec![0])
             ]),
-            vec![Constant(vec![0]), Constant(vec![0, 0])]
+            vec![Constant(true, vec![0]), Constant(true, vec![0, 0])]
         );
     }
 }

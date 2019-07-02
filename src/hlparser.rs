@@ -5,8 +5,9 @@ use rayon::prelude::*;
 #[derive(Clone, Debug, PartialEq)]
 pub enum ASTNode {
     NullNode,
-    Space(Vec<u8>),
-    Constant(Vec<u8>),
+
+    /// Constant: is_non_space, data
+    Constant(bool, Vec<u8>),
 
     /// Grouped: is_strict, elems
     /// loose groups are created while replacing patterns
@@ -78,8 +79,7 @@ pub trait MangleAST: Sized + Default + Clone {
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum ASTNodeClass {
     NullNode,
-    Space,
-    Constant,
+    Constant(bool),
     Grouped(bool),
     CmdEval,
 }
@@ -101,7 +101,7 @@ impl std::default::Default for ASTNodeClass {
 impl ASTNode {
     pub fn as_constant(&self) -> Option<&Vec<u8>> {
         match &self {
-            ASTNode::Constant(x) => Some(x),
+            ASTNode::Constant(_, x) => Some(x),
             _ => None,
         }
     }
@@ -118,7 +118,7 @@ impl MangleAST for ASTNode {
         use crate::hlparser::ASTNode::*;
         match self {
             NullNode => vec![],
-            Space(x) | Constant(x) => x,
+            Constant(_, x) => x,
             Grouped(is_strict, elems) => {
                 let mut inner = elems.to_u8v(escc);
                 let mut ret = Vec::<u8>::with_capacity(2 + inner.len());
@@ -151,7 +151,7 @@ impl MangleAST for ASTNode {
         use crate::hlparser::ASTNode::*;
         match &self {
             NullNode => 0,
-            Space(x) | Constant(x) => 1 + x.len(),
+            Constant(_, x) => 1 + x.len(),
             Grouped(_, x) => 2 + x.get_complexity(),
             CmdEval(cmd, x) => 1 + cmd.len() + x.get_complexity(),
         }
@@ -227,8 +227,7 @@ impl MangleAST for ASTNode {
     fn replace(self, from: &[u8], to: &ASTNode) -> Self {
         use crate::hlparser::ASTNode::*;
         match self {
-            _ if from.is_empty() => self,
-            Constant(x) => {
+            Constant(true, x) => {
                 let flen = from.len();
                 let mut skp: usize = 0;
                 classify_as_vec(x, |&i| {
@@ -241,7 +240,7 @@ impl MangleAST for ASTNode {
                     if d && i.len() == flen {
                         to.clone()
                     } else {
-                        Constant(i)
+                        Constant(true, i)
                     }
                 })
                 .collect::<Vec<_>>()
@@ -250,7 +249,7 @@ impl MangleAST for ASTNode {
             Grouped(is_strict, x) => Grouped(is_strict, Box::new(x.replace(from, to))),
             CmdEval(mut cmd, args) => {
                 // mangle cmd
-                if let Constant(to2) = &to {
+                if let Constant(true, to2) = &to {
                     use std::str;
                     if let Ok(from2) = str::from_utf8(from) {
                         if let Ok(to3) = str::from_utf8(&to2) {
@@ -305,9 +304,8 @@ impl MangleAST for VAN {
             use crate::hlparser::ASTNodeClass::*;
             match &i {
                 ASTNode::Grouped(false, x) if x.is_empty() => NullNode,
-                ASTNode::Space(x) | ASTNode::Constant(x) if x.is_empty() => NullNode,
-                ASTNode::Space(_) => Space,
-                ASTNode::Constant(_) => Constant,
+                ASTNode::Constant(_, x) if x.is_empty() => NullNode,
+                ASTNode::Constant(s, _) => Constant(*s),
                 ASTNode::Grouped(s, _) => Grouped(*s),
                 ASTNode::CmdEval(_, _) => CmdEval,
                 _ => NullNode,
@@ -333,8 +331,9 @@ impl MangleAST for VAN {
             match d {
                 ASTNodeClass::NullNode => NullNode.lift_ast(),
                 _ if i.len() < 2 => i,
-                ASTNodeClass::Space => Space(recollect!(i, Space(x), x)).lift_ast(),
-                ASTNodeClass::Constant => Constant(recollect!(i, Constant(x), x)).lift_ast(),
+                ASTNodeClass::Constant(x) => {
+                    Constant(x, recollect!(i, Constant(_, y), y)).lift_ast()
+                }
                 ASTNodeClass::Grouped(false) => recollect!(i, Grouped(_, x), *x),
                 _ => i,
             }
@@ -403,13 +402,7 @@ impl ToAST for Sections {
                 top.par_extend(
                     classify_as_vec(section, |i| i.is_space())
                         .into_par_iter()
-                        .map(|(ccl, x)| {
-                            if ccl {
-                                ASTNode::Space(x)
-                            } else {
-                                ASTNode::Constant(x)
-                            }
-                        }),
+                        .map(|(ccl, x)| ASTNode::Constant(!ccl, x)),
                 );
             }
         }
@@ -427,49 +420,53 @@ mod tests {
     #[test]
     fn test_replace() {
         assert_eq!(
-            vec![Constant(vec![0, 1, 2, 3])]
+            vec![Constant(true, vec![0, 1, 2, 3])]
                 .lift_ast()
-                .replace(&vec![1, 2], &Constant(vec![4])),
-            vec![Constant(vec![0]), Constant(vec![4]), Constant(vec![3])]
-                .lift_ast()
-                .lift_ast()
-                .lift_ast()
+                .replace(&vec![1, 2], &Constant(true, vec![4])),
+            vec![
+                Constant(true, vec![0]),
+                Constant(true, vec![4]),
+                Constant(true, vec![3])
+            ]
+            .lift_ast()
+            .lift_ast()
+            .lift_ast()
         );
     }
 
     #[test]
     fn test_simplify() {
         let ast = vec![
-            Constant(vec![0]),
-            Constant(vec![4])
+            Constant(true, vec![0]),
+            Constant(true, vec![4])
                 .lift_ast()
                 .lift_ast()
                 .lift_ast()
                 .lift_ast(),
-            Constant(vec![3]),
+            Constant(true, vec![3]),
         ]
         .lift_ast()
         .lift_ast()
         .lift_ast();
-        assert_eq!(ast.simplify(), Constant(vec![0, 4, 3]));
+        assert_eq!(ast.simplify(), Constant(true, vec![0, 4, 3]));
     }
 
     #[bench]
     fn bench_replace(b: &mut test::Bencher) {
-        let ast = Constant(vec![0, 1, 2, 3]).lift_ast().lift_ast();
-        b.iter(|| ast.clone().replace(&vec![1, 2], &Constant(vec![4])));
+        let ast = Constant(true, vec![0, 1, 2, 3]).lift_ast().lift_ast();
+        b.iter(|| ast.clone().replace(&vec![1, 2], &Constant(true, vec![4])));
     }
 
     #[bench]
     fn bench_simplify(b: &mut test::Bencher) {
         let ast = vec![
-            Constant(vec![0]),
-            Constant(vec![4])
+            Constant(true, vec![0]),
+            Constant(true, vec![4])
                 .lift_ast()
                 .lift_ast()
                 .lift_ast()
                 .lift_ast(),
-            Constant(vec![3]),
+            Constant(true, vec![3]),
         ]
         .lift_ast()
         .lift_ast()
