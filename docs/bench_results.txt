@@ -1,15 +1,15 @@
 
 running 10 tests
-test hlparser::tests::test_replace ... ignored
-test hlparser::tests::test_simplify ... ignored
+test mangle_ast::tests::test_replace ... ignored
+test mangle_ast::tests::test_simplify ... ignored
 test interp::tests::test_args2unspaced ... ignored
 test sharpen::tests::test_clsf0 ... ignored
 test sharpen::tests::test_clsf1 ... ignored
 test sharpen::tests::test_clsf2 ... ignored
 test sharpen::tests::test_clsfit2 ... ignored
-test hlparser::tests::bench_replace  ... bench:      12,278 ns/iter (+/- 212)
-test hlparser::tests::bench_simplify ... bench:      37,380 ns/iter (+/- 4,179)
-test sharpen::tests::bench_clsfit2   ... bench:         764 ns/iter (+/- 9)
+test mangle_ast::tests::bench_replace  ... bench:      12,278 ns/iter (+/- 212)
+test mangle_ast::tests::bench_simplify ... bench:      37,380 ns/iter (+/- 4,179)
+test sharpen::tests::bench_clsfit2     ... bench:         764 ns/iter (+/- 9)
 
 test result: ok. 0 passed; 0 failed; 7 ignored; 3 measured; 0 filtered out
 

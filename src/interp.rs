@@ -1,4 +1,5 @@
-use crate::hlparser::{ASTNode, MangleAST, VAN};
+use crate::hlparser::{ASTNode, VAN};
+use crate::mangle_ast::MangleAST;
 use std::{borrow::Cow, collections::HashMap};
 
 #[derive(Clone)]

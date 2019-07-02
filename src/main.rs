@@ -7,6 +7,7 @@ extern crate rayon;
 mod hlparser;
 mod interp;
 mod llparser;
+mod mangle_ast;
 mod sharpen;
 
 use std::{io, io::Write};
@@ -17,7 +18,7 @@ pub fn errmsg(s: &str) {
 }
 
 fn main() {
-    use crate::hlparser::MangleAST;
+    use crate::mangle_ast::MangleAST;
     use clap::Arg;
 
     let matches = clap::App::new("crulz")
