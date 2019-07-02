@@ -1,7 +1,5 @@
-use crate::hlparser::{ASTNode, MangleAST};
+use crate::hlparser::{ASTNode, MangleAST, VAN};
 use std::{borrow::Cow, collections::HashMap};
-
-type VAN = Vec<ASTNode>;
 
 #[derive(Clone)]
 enum InterpValue {
@@ -42,7 +40,7 @@ mod builtin {
         let unpacked = args.into_iter().filter_map(|mut x| {
             x.eval(&mut ctx);
             x.simplify_inplace();
-            Some(std::str::from_utf8(x.constant()?).ok()?
+            Some(std::str::from_utf8(x.as_constant()?).ok()?
             .parse::<i64>()
             .expect("expected number as @param"))
         }).collect::<Vec<_>>();
@@ -65,10 +63,10 @@ mod builtin {
         use std::str;
         let varname = unpack(&mut args[0]);
         let argc = unpack(&mut args[1]);
-        let varname = str::from_utf8(varname.constant()?)
+        let varname = str::from_utf8(varname.as_constant()?)
             .expect("expected utf8 varname")
             .to_owned();
-        let argc: usize = str::from_utf8(argc.constant()?)
+        let argc: usize = str::from_utf8(argc.as_constant()?)
             .expect("expected utf8 argc")
             .parse()
             .expect("expected number as argc");

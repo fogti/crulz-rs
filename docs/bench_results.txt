@@ -1,0 +1,14 @@
+
+running 9 tests
+test hlparser::tests::test_replace ... ignored
+test hlparser::tests::test_simplify ... ignored
+test interp::tests::test_args2unspaced ... ignored
+test sharpen::tests::test_clsf0 ... ignored
+test sharpen::tests::test_clsf1 ... ignored
+test sharpen::tests::test_clsf2 ... ignored
+test sharpen::tests::test_clsfit2 ... ignored
+test hlparser::tests::bench_replace  ... bench:      11,996 ns/iter (+/- 198)
+test hlparser::tests::bench_simplify ... bench:      38,157 ns/iter (+/- 2,901)
+
+test result: ok. 0 passed; 0 failed; 7 ignored; 2 measured; 0 filtered out
+

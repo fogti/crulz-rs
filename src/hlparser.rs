@@ -16,8 +16,9 @@ pub enum ASTNode {
 }
 
 // do NOT "use ASTNode::*;" here, because sometimes we want to "use ASTNodeClass::*;"
+pub type VAN = Vec<ASTNode>;
 
-pub trait MangleAST: Sized + Default {
+pub trait MangleAST: Sized + Default + Clone {
     type LiftT;
     // lift the AST one level up (ASTNode -> VAN || VAN -> ASTNode),
     // used as helper for MangleAST::simplify_inplace and others
@@ -29,9 +30,27 @@ pub trait MangleAST: Sized + Default {
     /// helper for MangleAST::simplify_inplace
     fn get_complexity(&self) -> usize;
 
-    fn simplify_inplace(&mut self) {
+    fn transform_cond<FnT>(&mut self, fnx: FnT)
+    where
+        FnT: FnOnce(Self) -> Option<Self>,
+    {
+        if let Some(x) = fnx(self.clone()) {
+            *self = x;
+        }
+    }
+
+    #[inline]
+    fn transform_inplace<FnT>(&mut self, fnx: FnT)
+    where
+        FnT: FnOnce(Self) -> Self,
+    {
         let tmp = std::mem::replace(self, Default::default());
-        *self = tmp.simplify();
+        *self = fnx(tmp);
+    }
+
+    #[inline]
+    fn simplify_inplace(&mut self) {
+        self.transform_inplace(|x| x.simplify());
     }
 
     fn replace_inplace(&mut self, from: &[u8], to: &ASTNode);
@@ -54,19 +73,21 @@ enum ASTNodeClass {
 }
 
 impl std::default::Default for ASTNode {
+    #[inline]
     fn default() -> Self {
         ASTNode::NullNode
     }
 }
 
 impl std::default::Default for ASTNodeClass {
+    #[inline]
     fn default() -> Self {
         ASTNodeClass::NullNode
     }
 }
 
 impl ASTNode {
-    pub fn constant(&self) -> Option<&Vec<u8>> {
+    pub fn as_constant(&self) -> Option<&Vec<u8>> {
         match &self {
             ASTNode::Constant(x) => Some(x),
             _ => None,
@@ -75,7 +96,7 @@ impl ASTNode {
 }
 
 impl MangleAST for ASTNode {
-    type LiftT = Vec<ASTNode>;
+    type LiftT = VAN;
     #[inline]
     fn lift_ast(self) -> Self::LiftT {
         vec![self]
@@ -160,11 +181,13 @@ impl MangleAST for ASTNode {
 
     #[inline]
     fn replace_inplace(&mut self, from: &[u8], to: &ASTNode) {
-        let tmp = std::mem::replace(self, Default::default());
-        *self = tmp.replace(from, to);
+        self.transform_inplace(|x| x.replace(from, to))
     }
 
-    fn replace(self, from: &[u8], to: &ASTNode) -> Self {
+    fn replace(mut self, from: &[u8], to: &ASTNode) -> Self {
+        if from.is_empty() {
+            return self;
+        }
         use crate::hlparser::ASTNode::*;
         match self {
             _ if from.is_empty() => self,
@@ -188,20 +211,22 @@ impl MangleAST for ASTNode {
                 .lift_ast()
             }
             Grouped(is_strict, x) => Grouped(is_strict, Box::new(x.clone().replace(from, to))),
-            CmdEval(cmd, args) => {
-                let mut cmd = cmd.clone();
+            CmdEval(ref mut cmd, ref mut args) => {
                 // mangle cmd
                 if let Constant(to2) = &to {
                     use std::str;
                     if let Ok(from2) = str::from_utf8(from) {
                         if let Ok(to3) = str::from_utf8(&to2) {
-                            cmd = cmd.replace(from2, to3);
+                            *cmd = cmd.replace(from2, to3);
                         }
                     }
                 }
 
                 // mangle args
-                CmdEval(cmd, Box::new(args.clone().replace(from, to)))
+                CmdEval(
+                    std::mem::replace(cmd, String::new()),
+                    Box::new(std::mem::replace(&mut **args, vec![]).replace(from, to)),
+                )
             }
             // we ignore spaces
             _ => self,
@@ -209,7 +234,7 @@ impl MangleAST for ASTNode {
     }
 }
 
-impl MangleAST for Vec<ASTNode> {
+impl MangleAST for VAN {
     type LiftT = ASTNode;
     #[inline]
     fn lift_ast(self) -> Self::LiftT {
@@ -272,8 +297,9 @@ impl MangleAST for Vec<ASTNode> {
                 true
             }
         })
-        .collect::<Vec<ASTNode>>()
+        .collect::<Self>()
     }
+    #[inline]
     fn replace_inplace(&mut self, from: &[u8], to: &ASTNode) {
         if from.is_empty() {
             return;
@@ -300,11 +326,11 @@ macro_rules! crossparse {
 }
 
 pub trait ToAST {
-    fn to_ast(self, escc: u8) -> Vec<ASTNode>;
+    fn to_ast(self, escc: u8) -> VAN;
 }
 
 impl ToAST for Sections {
-    fn to_ast(self, escc: u8) -> Vec<ASTNode> {
+    fn to_ast(self, escc: u8) -> VAN {
         let mut top = Vec::<ASTNode>::new();
 
         for (is_cmdeval, section) in self {
@@ -313,10 +339,7 @@ impl ToAST for Sections {
             use crate::llparser::{parse_whole, IsSpace};
             if is_cmdeval {
                 let first_space = section.iter().position(|&x| x.is_space());
-                let rest = match first_space {
-                    None => &[],
-                    Some(x) => &section[x + 1..],
-                };
+                let rest = first_space.map(|x| &section[x + 1..]).unwrap_or(&[]);
 
                 top.push(ASTNode::CmdEval(
                     std::str::from_utf8(&section[0..first_space.unwrap_or(slen)])
@@ -368,13 +391,17 @@ mod tests {
     #[test]
     fn test_simplify() {
         let ast = vec![
-                    Constant(vec![0]),
-                    Constant(vec![4]).lift_ast().lift_ast().lift_ast().lift_ast(),
-                    Constant(vec![3]),
-            ]
-            .lift_ast()
-            .lift_ast()
-            .lift_ast();
+            Constant(vec![0]),
+            Constant(vec![4])
+                .lift_ast()
+                .lift_ast()
+                .lift_ast()
+                .lift_ast(),
+            Constant(vec![3]),
+        ]
+        .lift_ast()
+        .lift_ast()
+        .lift_ast();
         assert_eq!(ast.simplify(), Constant(vec![0, 4, 3]));
     }
 
@@ -387,13 +414,17 @@ mod tests {
     #[bench]
     fn bench_simplify(b: &mut test::Bencher) {
         let ast = vec![
-                    Constant(vec![0]),
-                    Constant(vec![4]).lift_ast().lift_ast().lift_ast().lift_ast(),
-                    Constant(vec![3]),
-            ]
-            .lift_ast()
-            .lift_ast()
-            .lift_ast();
+            Constant(vec![0]),
+            Constant(vec![4])
+                .lift_ast()
+                .lift_ast()
+                .lift_ast()
+                .lift_ast(),
+            Constant(vec![3]),
+        ]
+        .lift_ast()
+        .lift_ast()
+        .lift_ast();
         b.iter(|| ast.clone().simplify());
     }
 }
