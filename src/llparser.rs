@@ -6,7 +6,6 @@ use crate::sharpen::*;
 enum LLParserMode {
     Normal,
     GroupN(u32),
-    CmdN(u32),
 }
 
 use crate::llparser::LLParserMode::*;
@@ -14,13 +13,13 @@ use crate::llparser::LLParserMode::*;
 impl LLParserMode {
     fn incr(mut self: &mut Self) {
         match &mut self {
-            GroupN(ref mut x) | CmdN(ref mut x) => *x += 1,
+            GroupN(ref mut x) => *x += 1,
             _ => {}
         };
     }
     fn decr(mut self: &mut Self) {
         match &mut self {
-            GroupN(ref mut x) | CmdN(ref mut x) => *x -= 1,
+            GroupN(ref mut x) => *x -= 1,
             _ => {}
         };
     }
@@ -60,15 +59,10 @@ impl LLParser {
         // as long as the parts starting with ESCC '(' ( and ending with ')')
         // are valid utf8
         for &i in input {
-            let mut r2normal = false;
             match self.pm {
-                Normal | GroupN(0) => {
-                    if let GroupN(0) = self.pm {
-                        self.pm = Normal;
-                        self.secs.up_push();
-                    }
+                Normal => {
                     if i == self.escc {
-                        self.pm = CmdN(0);
+                        self.pm = GroupN(0);
                     } else {
                         match i {
                             // 40 = '(' // 41 = ')'
@@ -88,11 +82,12 @@ impl LLParser {
                         self.secs.push(i);
                     }
                 }
-                CmdN(0) => {
+                GroupN(0) => {
+                    // we are at the beginning of a command (after '\\'), expect '('
                     match i {
                         // '(' // !')'
                         40 => {
-                            self.pm = CmdN(1);
+                            self.pm = GroupN(1);
                             self.secs.up_push();
                             self.secs.push(self.escc);
                         }
@@ -102,13 +97,14 @@ impl LLParser {
                     }
                     self.secs.push(i);
                 }
-                CmdN(x) | GroupN(x) => {
+                GroupN(x) => {
                     self.secs.push(i);
                     match i {
                         40 => self.pm.incr(),
                         41 => {
                             if x == 1 {
-                                r2normal = true;
+                                self.pm = Normal;
+                                self.secs.up_push();
                             } else {
                                 self.pm.decr();
                             }
@@ -116,10 +112,6 @@ impl LLParser {
                         _ => {}
                     }
                 }
-            }
-            if r2normal {
-                self.pm = Normal;
-                self.secs.up_push();
             }
         }
 
