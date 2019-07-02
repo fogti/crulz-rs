@@ -30,9 +30,8 @@ impl<T> TwoVec<T> {
     }
 }
 
-pub struct ClassifyIT<'a, TT, TC, FnT, IT>
+pub struct ClassifyIT<'a, TT: 'a, TC, FnT, IT>
 where
-    TT: 'a,
     TC: Copy + Default + std::cmp::PartialEq,
     FnT: FnMut(&TT) -> TC,
     IT: Iterator<Item = TT>,
@@ -42,9 +41,8 @@ where
     edge: (Option<TC>, Option<TT>),
 }
 
-impl<'a, TT, TC, FnT, IT> ClassifyIT<'a, TT, TC, FnT, IT>
+impl<'a, TT: 'a, TC, FnT, IT> ClassifyIT<'a, TT, TC, FnT, IT>
 where
-    TT: 'a,
     TC: Copy + Default + std::cmp::PartialEq,
     FnT: FnMut(&TT) -> TC,
     IT: Iterator<Item = TT>,
@@ -58,9 +56,8 @@ where
     }
 }
 
-impl<'a, TT, TC, FnT, IT> std::iter::Iterator for ClassifyIT<'a, TT, TC, FnT, IT>
+impl<'a, TT: 'a, TC, FnT, IT> std::iter::Iterator for ClassifyIT<'a, TT, TC, FnT, IT>
 where
-    TT: 'a,
     TC: Copy + Default + std::cmp::PartialEq,
     FnT: FnMut(&TT) -> TC,
     IT: Iterator<Item = TT>,
@@ -102,10 +99,9 @@ where
     }
 }
 
-pub trait Classify<'a, TT>
+pub trait Classify<'a, TT: 'a>
 where
     Self: Sized + Iterator<Item = TT> + 'a,
-    TT: 'a,
 {
     fn classify<TC, FnT>(&'a mut self, fnx: FnT) -> ClassifyIT<'a, TT, TC, FnT, Self>
     where
@@ -113,10 +109,9 @@ where
         FnT: FnMut(&TT) -> TC;
 }
 
-impl<'a, IT, TT> Classify<'a, TT> for IT
+impl<'a, IT, TT: 'a> Classify<'a, TT> for IT
 where
     Self: Sized + Iterator<Item = TT> + 'a,
-    TT: 'a,
 {
     fn classify<TC, FnT>(&'a mut self, fnx: FnT) -> ClassifyIT<'a, TT, TC, FnT, Self>
     where
@@ -127,6 +122,25 @@ where
     }
 }
 
+pub fn classify<'a, Input, FnT, TT: 'a, TC, TRes>(input: Input, fnx: FnT) -> TRes
+where
+    Input: IntoIterator<Item = TT>,
+    FnT: FnMut(&TT) -> TC,
+    TC: Copy + Default + PartialEq,
+    TRes: std::iter::FromIterator<(TC, Vec<TT>)>,
+{
+    input.into_iter().classify(fnx).collect()
+}
+
+pub fn classify_as_vec<'a, Input, FnT, TT: 'a, TC>(input: Input, fnx: FnT) -> Vec<(TC, Vec<TT>)>
+where
+    Input: IntoIterator<Item = TT>,
+    FnT: FnMut(&TT) -> TC,
+    TC: Copy + Default + PartialEq,
+{
+    classify(input, fnx)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,7 +149,7 @@ mod tests {
     #[test]
     fn test_clsf0() {
         let input: Vec<u8> = vec![0, 0, 1, 1, 2, 2, 3, 0, 5, 5, 5];
-        let res = input.into_iter().classify(|&curc| curc).collect::<Vec<_>>();
+        let res: Vec<_> = classify(input, |&curc| curc);
         assert_eq!(
             res,
             vec![
@@ -161,10 +175,7 @@ mod tests {
             Some(0),
             None,
         ];
-        let res = input
-            .into_iter()
-            .classify(|curo| curo.is_some())
-            .collect::<Vec<_>>();
+        let res: Vec<_> = classify(input, |curo| curo.is_some());
         assert_eq!(
             res,
             vec![
@@ -186,10 +197,7 @@ mod tests {
             Some(vec![2]),
             None,
         ];
-        let res = input
-            .into_iter()
-            .classify(|curo| curo.is_some())
-            .collect::<Vec<_>>();
+        let res: Vec<_> = classify(input, |curo| curo.is_some());
         assert_eq!(
             res,
             vec![
@@ -234,12 +242,6 @@ mod tests {
             Some(vec![2]),
             None,
         ];
-        b.iter(|| {
-            input
-                .clone()
-                .into_iter()
-                .classify(|curo| curo.is_some())
-                .collect::<Vec<_>>()
-        });
+        b.iter(|| classify_as_vec(input.clone(), |curo| curo.is_some()));
     }
 }

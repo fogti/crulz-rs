@@ -1,5 +1,5 @@
 use crate::llparser::Sections;
-use crate::sharpen::Classify;
+use crate::sharpen::classify_as_vec;
 use rayon::prelude::*;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -233,23 +233,21 @@ impl MangleAST for ASTNode {
             Constant(x) => {
                 let flen = from.len();
                 let mut skp: usize = 0;
-                x.into_iter()
-                    .classify(|&i| {
-                        let ret = skp != flen && i == from[skp];
-                        skp = if ret { skp + 1 } else { 0 };
-                        ret
-                    })
-                    .collect::<Vec<_>>()
-                    .into_par_iter()
-                    .map(|(d, i)| {
-                        if d && i.len() == flen {
-                            to.clone()
-                        } else {
-                            Constant(i)
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .lift_ast()
+                classify_as_vec(x, |&i| {
+                    let ret = skp != flen && i == from[skp];
+                    skp = if ret { skp + 1 } else { 0 };
+                    ret
+                })
+                .into_par_iter()
+                .map(|(d, i)| {
+                    if d && i.len() == flen {
+                        to.clone()
+                    } else {
+                        Constant(i)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .lift_ast()
             }
             Grouped(is_strict, x) => Grouped(is_strict, Box::new(x.replace(from, to))),
             CmdEval(mut cmd, args) => {
@@ -305,55 +303,53 @@ impl MangleAST for VAN {
 
     fn simplify(mut self) -> Self {
         self.par_iter_mut().for_each(|i| i.simplify_inplace());
-        self.into_iter()
-            .classify(|i| {
-                use crate::hlparser::ASTNodeClass::*;
-                match &i {
-                    ASTNode::Grouped(false, x) if x.is_empty() => NullNode,
-                    ASTNode::Space(x) | ASTNode::Constant(x) if x.is_empty() => NullNode,
-                    ASTNode::Space(_) => Space,
-                    ASTNode::Constant(_) => Constant,
-                    ASTNode::Grouped(s, _) => Grouped(*s),
-                    ASTNode::CmdEval(_, _) => CmdEval,
-                    _ => NullNode,
-                }
-            })
-            .collect::<Vec<_>>()
-            .into_par_iter()
-            .map(|(d, i)| {
-                use crate::hlparser::ASTNode::*;
-                macro_rules! recollect {
-                    ($i:expr, $in:pat, $out:expr) => {
-                        $i.into_par_iter()
-                            .map(|j| {
-                                if let $in = j {
-                                    $out
-                                } else {
-                                    unsafe { std::hint::unreachable_unchecked() }
-                                }
-                            })
-                            .flatten()
-                            .collect()
-                    };
+        classify_as_vec(self, |i| {
+            use crate::hlparser::ASTNodeClass::*;
+            match &i {
+                ASTNode::Grouped(false, x) if x.is_empty() => NullNode,
+                ASTNode::Space(x) | ASTNode::Constant(x) if x.is_empty() => NullNode,
+                ASTNode::Space(_) => Space,
+                ASTNode::Constant(_) => Constant,
+                ASTNode::Grouped(s, _) => Grouped(*s),
+                ASTNode::CmdEval(_, _) => CmdEval,
+                _ => NullNode,
+            }
+        })
+        .into_par_iter()
+        .map(|(d, i)| {
+            use crate::hlparser::ASTNode::*;
+            macro_rules! recollect {
+                ($i:expr, $in:pat, $out:expr) => {
+                    $i.into_par_iter()
+                        .map(|j| {
+                            if let $in = j {
+                                $out
+                            } else {
+                                unsafe { std::hint::unreachable_unchecked() }
+                            }
+                        })
+                        .flatten()
+                        .collect()
                 };
-                match d {
-                    ASTNodeClass::NullNode => NullNode.lift_ast(),
-                    _ if i.len() < 2 => i,
-                    ASTNodeClass::Space => Space(recollect!(i, Space(x), x)).lift_ast(),
-                    ASTNodeClass::Constant => Constant(recollect!(i, Constant(x), x)).lift_ast(),
-                    ASTNodeClass::Grouped(false) => recollect!(i, Grouped(_, x), *x),
-                    _ => i,
-                }
-            })
-            .flatten()
-            .filter(|i| {
-                if let ASTNode::NullNode = i {
-                    false
-                } else {
-                    true
-                }
-            })
-            .collect::<Self>()
+            };
+            match d {
+                ASTNodeClass::NullNode => NullNode.lift_ast(),
+                _ if i.len() < 2 => i,
+                ASTNodeClass::Space => Space(recollect!(i, Space(x), x)).lift_ast(),
+                ASTNodeClass::Constant => Constant(recollect!(i, Constant(x), x)).lift_ast(),
+                ASTNodeClass::Grouped(false) => recollect!(i, Grouped(_, x), *x),
+                _ => i,
+            }
+        })
+        .flatten()
+        .filter(|i| {
+            if let ASTNode::NullNode = i {
+                false
+            } else {
+                true
+            }
+        })
+        .collect::<Self>()
     }
     #[inline]
     fn replace_inplace(&mut self, from: &[u8], to: &ASTNode) {
@@ -407,10 +403,7 @@ impl ToAST for Sections {
                 ));
             } else {
                 top.par_extend(
-                    section
-                        .into_iter()
-                        .classify(|i| i.is_space())
-                        .collect::<Vec<_>>()
+                    classify_as_vec(section, |i| i.is_space())
                         .into_par_iter()
                         .map(|(ccl, x)| {
                             if ccl {
