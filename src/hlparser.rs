@@ -48,6 +48,16 @@ pub trait MangleAST: Sized + Default + Clone {
         *self = fnx(tmp);
     }
 
+    fn transform_recursive_cond<FnT>(&mut self, fnx: &FnT)
+    where
+        FnT: Send + Sync + Fn(ASTNode) -> Option<ASTNode>;
+
+    // transform_recursive is more effective for unconditional fnx'
+    // because it doesn't need to copy Self twice
+    fn transform_recursive<FnT>(&mut self, fnx: &FnT)
+    where
+        FnT: Send + Sync + Fn(ASTNode) -> ASTNode;
+
     #[inline]
     fn simplify_inplace(&mut self) {
         self.transform_inplace(|x| x.simplify());
@@ -143,6 +153,39 @@ impl MangleAST for ASTNode {
             Grouped(_, x) => 2 + x.get_complexity(),
             CmdEval(cmd, x) => 1 + cmd.len() + x.get_complexity(),
         }
+    }
+
+    fn transform_recursive_cond<FnT>(&mut self, fnx: &FnT)
+    where
+        FnT: Send + Sync + Fn(ASTNode) -> Option<ASTNode>,
+    {
+        let mut mself = match fnx(self.clone()) {
+            None => self.clone(),
+            Some(x) => x,
+        };
+        use crate::hlparser::ASTNode::*;
+        match &mut mself {
+            Grouped(_, ref mut x) | CmdEval(_, ref mut x) => {
+                x.transform_recursive_cond(fnx);
+            }
+            _ => {}
+        }
+        *self = mself;
+    }
+
+    fn transform_recursive<FnT>(&mut self, fnx: &FnT)
+    where
+        FnT: Send + Sync + Fn(ASTNode) -> ASTNode
+    {
+        let mut mself = fnx(std::mem::replace(self, Default::default()));
+        use crate::hlparser::ASTNode::*;
+        match &mut mself {
+            Grouped(_, ref mut x) | CmdEval(_, ref mut x) => {
+                x.transform_recursive(fnx);
+            }
+            _ => {}
+        }
+        *self = mself;
     }
 
     fn simplify(mut self) -> Self {
@@ -249,6 +292,21 @@ impl MangleAST for VAN {
     fn get_complexity(&self) -> usize {
         self.par_iter().map(|i| i.get_complexity()).sum()
     }
+
+    fn transform_recursive_cond<FnT>(&mut self, fnx: &FnT)
+    where
+        FnT: Send + Sync + Fn(ASTNode) -> Option<ASTNode>,
+    {
+        self.par_iter_mut().for_each(|i| i.transform_recursive_cond(fnx))
+    }
+
+    fn transform_recursive<FnT>(&mut self, fnx: &FnT)
+    where
+        FnT: Send + Sync + Fn(ASTNode) -> ASTNode
+    {
+        self.par_iter_mut().for_each(|i| i.transform_recursive(fnx))
+    }
+
     fn simplify(mut self) -> Self {
         self.par_iter_mut().for_each(|i| i.simplify_inplace());
         self.classify(|i| {
