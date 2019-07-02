@@ -30,6 +30,10 @@ pub trait MangleAST: Sized + Default + Clone {
     /// helper for MangleAST::simplify_inplace
     fn get_complexity(&self) -> usize;
 
+    fn take(mut self: &mut Self) -> Self {
+        std::mem::replace(&mut self, Default::default())
+    }
+
     fn transform_cond<FnT>(&mut self, fnx: FnT)
     where
         FnT: FnOnce(Self) -> Option<Self>,
@@ -44,8 +48,7 @@ pub trait MangleAST: Sized + Default + Clone {
     where
         FnT: FnOnce(Self) -> Self,
     {
-        let tmp = std::mem::replace(self, Default::default());
-        *self = fnx(tmp);
+        *self = fnx(self.take());
     }
 
     fn transform_recursive_cond<FnT>(&mut self, fnx: &FnT)
@@ -154,37 +157,32 @@ impl MangleAST for ASTNode {
         }
     }
 
-    fn transform_recursive_cond<FnT>(&mut self, fnx: &FnT)
+    fn transform_recursive_cond<FnT>(mut self: &mut Self, fnx: &FnT)
     where
         FnT: Send + Sync + Fn(ASTNode) -> Option<ASTNode>,
     {
-        let mut mself = match fnx(self.clone()) {
-            None => self.clone(),
-            Some(x) => x,
-        };
+        self.transform_cond(fnx);
         use crate::hlparser::ASTNode::*;
-        match &mut mself {
+        match &mut self {
             Grouped(_, ref mut x) | CmdEval(_, ref mut x) => {
                 x.transform_recursive_cond(fnx);
             }
             _ => {}
         }
-        *self = mself;
     }
 
-    fn transform_recursive<FnT>(&mut self, fnx: &FnT)
+    fn transform_recursive<FnT>(mut self: &mut Self, fnx: &FnT)
     where
         FnT: Send + Sync + Fn(ASTNode) -> ASTNode,
     {
-        let mut mself = fnx(std::mem::replace(self, Default::default()));
+        self.transform_inplace(fnx);
         use crate::hlparser::ASTNode::*;
-        match &mut mself {
+        match &mut self {
             Grouped(_, ref mut x) | CmdEval(_, ref mut x) => {
                 x.transform_recursive(fnx);
             }
             _ => {}
         }
-        *self = mself;
     }
 
     fn simplify(mut self) -> Self {
@@ -198,7 +196,7 @@ impl MangleAST for ASTNode {
                     }
                 }
                 1 => {
-                    let y = std::mem::replace(&mut x[0], ASTNode::NullNode);
+                    let y = x[0].take();
                     if *is_strict {
                         if let Grouped(_, z) = y {
                             *x = z;

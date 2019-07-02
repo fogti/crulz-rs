@@ -13,13 +13,17 @@ impl<T> TwoVec<T> {
         }
     }
 
+    fn take<TT>(mut x: &mut Vec<TT>) -> Vec<TT> {
+        std::mem::replace(&mut x, vec![])
+    }
+
     pub fn finish(&mut self) -> Vec<Vec<T>> {
         self.up_push();
-        std::mem::replace(&mut self.parts, vec![])
+        Self::take(&mut self.parts)
     }
 
     pub fn up_push(&mut self) {
-        let tmp = std::mem::replace(&mut self.last, vec![]);
+        let tmp = Self::take(&mut self.last);
         if !tmp.is_empty() {
             self.parts.push(tmp);
         }

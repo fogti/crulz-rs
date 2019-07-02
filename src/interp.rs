@@ -55,7 +55,7 @@ mod builtin {
             return None;
         }
         let mut unpack = |x: &mut ASTNode| {
-            let mut y = std::mem::replace(x, ASTNode::NullNode);
+            let mut y = x.take();
             y.eval(&mut ctx);
             y.simplify()
         };
@@ -119,7 +119,6 @@ fn eval_cmd(cmd: &str, mut args: VAN, mut ctx: &mut EvalContext) -> Option<ASTNo
             Some(n) if args.len() != *n => None,
             _ => x(args, &mut ctx),
         },
-        Data(0, x) => Some(x.clone()),
         Data(n, x) => {
             if args.len() < *n {
                 return None;
@@ -141,18 +140,16 @@ trait Eval {
 }
 
 impl Eval for ASTNode {
-    fn eval(&mut self, mut ctx: &mut EvalContext) {
+    fn eval(mut self: &mut Self, mut ctx: &mut EvalContext) {
         use crate::hlparser::ASTNode::*;
-        match &self {
+        match &mut self {
             CmdEval(cmd, args) => {
                 if let Some(x) = eval_cmd(cmd, args2unspaced(*args.clone()), &mut ctx) {
                     *self = x;
                 }
             }
-            Grouped(is_strict, x) => {
-                let mut y = x.clone();
-                y.eval(&mut ctx);
-                *self = Grouped(*is_strict, y);
+            Grouped(_, x) => {
+                x.eval(&mut ctx);
             }
             _ => {}
         }

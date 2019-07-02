@@ -12,21 +12,17 @@ enum LLParserMode {
 use crate::llparser::LLParserMode::*;
 
 impl LLParserMode {
-    fn incr(&mut self) {
-        let res = match &self {
-            GroupN(x) => GroupN(x + 1),
-            CmdN(x) => CmdN(x + 1),
-            _ => *self,
+    fn incr(mut self: &mut Self) {
+        match &mut self {
+            GroupN(ref mut x) | CmdN(ref mut x) => *x += 1,
+            _ => {},
         };
-        *self = res;
     }
-    fn decr(&mut self) {
-        let res = match &self {
-            GroupN(x) => GroupN(x - 1),
-            CmdN(x) => CmdN(x - 1),
-            _ => *self,
+    fn decr(mut self: &mut Self) {
+        match &mut self {
+            GroupN(ref mut x) | CmdN(ref mut x) => *x -= 1,
+            _ => {},
         };
-        *self = res;
     }
 }
 
