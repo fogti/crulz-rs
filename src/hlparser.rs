@@ -63,13 +63,12 @@ pub trait MangleAST: Sized + Default + Clone {
         self.transform_inplace(|x| x.simplify());
     }
 
+    /// this replace function works on byte-basis and honours ASTNode boundaries
     fn replace_inplace(&mut self, from: &[u8], to: &ASTNode);
+    fn replace(self, from: &[u8], to: &ASTNode) -> Self;
 
     /// this cleanup up the AST, opposite of two lift_ast invocations
     fn simplify(self) -> Self;
-
-    /// this replace function works on byte-basis and honours ASTNode boundaries
-    fn replace(self, from: &[u8], to: &ASTNode) -> Self;
 }
 
 // helper for MangleAST::simplify_inplace
@@ -175,7 +174,7 @@ impl MangleAST for ASTNode {
 
     fn transform_recursive<FnT>(&mut self, fnx: &FnT)
     where
-        FnT: Send + Sync + Fn(ASTNode) -> ASTNode
+        FnT: Send + Sync + Fn(ASTNode) -> ASTNode,
     {
         let mut mself = fnx(std::mem::replace(self, Default::default()));
         use crate::hlparser::ASTNode::*;
@@ -227,51 +226,45 @@ impl MangleAST for ASTNode {
         self.transform_inplace(|x| x.replace(from, to))
     }
 
-    fn replace(mut self, from: &[u8], to: &ASTNode) -> Self {
-        if from.is_empty() {
-            return self;
-        }
+    fn replace(self, from: &[u8], to: &ASTNode) -> Self {
         use crate::hlparser::ASTNode::*;
         match self {
             _ if from.is_empty() => self,
-            Constant(ref x) => {
+            Constant(x) => {
                 let flen = from.len();
                 let mut skp: usize = 0;
                 x.into_iter()
-                .classify(|&&i| {
-                    let ret = skp != flen && i == from[skp];
-                    skp = if ret { skp + 1 } else { 0 };
-                    ret
-                })
-                .collect::<Vec<_>>()
-                .into_par_iter()
-                .map(|(d, i)| {
-                    if d && i.len() == flen {
-                        to.clone()
-                    } else {
-                        Constant(i.into_iter().map(|&i| i).collect::<Vec<_>>())
-                    }
-                })
-                .collect::<Vec<_>>()
-                .lift_ast()
+                    .classify(|&i| {
+                        let ret = skp != flen && i == from[skp];
+                        skp = if ret { skp + 1 } else { 0 };
+                        ret
+                    })
+                    .collect::<Vec<_>>()
+                    .into_par_iter()
+                    .map(|(d, i)| {
+                        if d && i.len() == flen {
+                            to.clone()
+                        } else {
+                            Constant(i)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .lift_ast()
             }
-            Grouped(is_strict, x) => Grouped(is_strict, Box::new(x.clone().replace(from, to))),
-            CmdEval(ref mut cmd, ref mut args) => {
+            Grouped(is_strict, x) => Grouped(is_strict, Box::new(x.replace(from, to))),
+            CmdEval(mut cmd, args) => {
                 // mangle cmd
                 if let Constant(to2) = &to {
                     use std::str;
                     if let Ok(from2) = str::from_utf8(from) {
                         if let Ok(to3) = str::from_utf8(&to2) {
-                            *cmd = cmd.replace(from2, to3);
+                            cmd = cmd.replace(from2, to3);
                         }
                     }
                 }
 
                 // mangle args
-                CmdEval(
-                    std::mem::replace(cmd, String::new()),
-                    Box::new(std::mem::replace(&mut **args, vec![]).replace(from, to)),
-                )
+                CmdEval(cmd, Box::new(args.replace(from, to)))
             }
             // we ignore spaces
             _ => self,
@@ -299,74 +292,71 @@ impl MangleAST for VAN {
     where
         FnT: Send + Sync + Fn(ASTNode) -> Option<ASTNode>,
     {
-        self.par_iter_mut().for_each(|i| i.transform_recursive_cond(fnx))
+        self.par_iter_mut()
+            .for_each(|i| i.transform_recursive_cond(fnx))
     }
 
     fn transform_recursive<FnT>(&mut self, fnx: &FnT)
     where
-        FnT: Send + Sync + Fn(ASTNode) -> ASTNode
+        FnT: Send + Sync + Fn(ASTNode) -> ASTNode,
     {
         self.par_iter_mut().for_each(|i| i.transform_recursive(fnx))
     }
 
     fn simplify(mut self) -> Self {
         self.par_iter_mut().for_each(|i| i.simplify_inplace());
-        self
-        .into_iter()
-        .classify(|i| {
-            use crate::hlparser::ASTNodeClass::*;
-            match &i {
-                ASTNode::Grouped(false, ref x) if x.is_empty() => NullNode,
-                ASTNode::Space(ref x) | ASTNode::Constant(ref x) if x.is_empty() => NullNode,
-                ASTNode::Space(_) => Space,
-                ASTNode::Constant(_) => Constant,
-                ASTNode::Grouped(s, _) => Grouped(*s),
-                ASTNode::CmdEval(_, _) => CmdEval,
-                _ => NullNode,
-            }
-        })
-        .collect::<Vec<_>>()
-        .into_par_iter()
-        .map(|(d, i)| {
-            use crate::hlparser::ASTNode::*;
-            macro_rules! recollect {
-                ($i:expr, $in:pat, $out:expr) => {
-                    $i.into_par_iter()
-                        .map(|j| {
-                            if let $in = j {
-                                $out
-                            } else {
-                                unsafe { std::hint::unreachable_unchecked() }
-                            }
-                        })
-                        .flatten()
-                        .collect()
+        self.into_iter()
+            .classify(|i| {
+                use crate::hlparser::ASTNodeClass::*;
+                match &i {
+                    ASTNode::Grouped(false, x) if x.is_empty() => NullNode,
+                    ASTNode::Space(x) | ASTNode::Constant(x) if x.is_empty() => NullNode,
+                    ASTNode::Space(_) => Space,
+                    ASTNode::Constant(_) => Constant,
+                    ASTNode::Grouped(s, _) => Grouped(*s),
+                    ASTNode::CmdEval(_, _) => CmdEval,
+                    _ => NullNode,
+                }
+            })
+            .collect::<Vec<_>>()
+            .into_par_iter()
+            .map(|(d, i)| {
+                use crate::hlparser::ASTNode::*;
+                macro_rules! recollect {
+                    ($i:expr, $in:pat, $out:expr) => {
+                        $i.into_par_iter()
+                            .map(|j| {
+                                if let $in = j {
+                                    $out
+                                } else {
+                                    unsafe { std::hint::unreachable_unchecked() }
+                                }
+                            })
+                            .flatten()
+                            .collect()
+                    };
                 };
-            };
-            match d {
-                ASTNodeClass::NullNode => NullNode.lift_ast(),
-                _ if i.len() < 2 => i,
-                ASTNodeClass::Space => Space(recollect!(i, Space(x), x)).lift_ast(),
-                ASTNodeClass::Constant => Constant(recollect!(i, Constant(x), x)).lift_ast(),
-                ASTNodeClass::Grouped(false) => recollect!(i, Grouped(_, x), *x),
-                _ => i,
-            }
-        })
-        .flatten()
-        .filter(|i| {
-            if let ASTNode::NullNode = i {
-                false
-            } else {
-                true
-            }
-        })
-        .collect::<Self>()
+                match d {
+                    ASTNodeClass::NullNode => NullNode.lift_ast(),
+                    _ if i.len() < 2 => i,
+                    ASTNodeClass::Space => Space(recollect!(i, Space(x), x)).lift_ast(),
+                    ASTNodeClass::Constant => Constant(recollect!(i, Constant(x), x)).lift_ast(),
+                    ASTNodeClass::Grouped(false) => recollect!(i, Grouped(_, x), *x),
+                    _ => i,
+                }
+            })
+            .flatten()
+            .filter(|i| {
+                if let ASTNode::NullNode = i {
+                    false
+                } else {
+                    true
+                }
+            })
+            .collect::<Self>()
     }
     #[inline]
     fn replace_inplace(&mut self, from: &[u8], to: &ASTNode) {
-        if from.is_empty() {
-            return;
-        }
         self.par_iter_mut()
             .for_each(|i| i.replace_inplace(from, to));
     }
@@ -416,15 +406,20 @@ impl ToAST for Sections {
                     Box::new(crossparse!(parse_whole, &section[1..slen - 1], escc)),
                 ));
             } else {
-                top.par_extend(section.into_iter().classify(|i| i.is_space()).collect::<Vec<_>>().into_par_iter().map(
-                    |(ccl, x)| {
-                        if ccl {
-                            ASTNode::Space(x)
-                        } else {
-                            ASTNode::Constant(x)
-                        }
-                    },
-                ));
+                top.par_extend(
+                    section
+                        .into_iter()
+                        .classify(|i| i.is_space())
+                        .collect::<Vec<_>>()
+                        .into_par_iter()
+                        .map(|(ccl, x)| {
+                            if ccl {
+                                ASTNode::Space(x)
+                            } else {
+                                ASTNode::Constant(x)
+                            }
+                        }),
+                );
             }
         }
 

@@ -7,9 +7,9 @@ test sharpen::tests::test_clsf0 ... ignored
 test sharpen::tests::test_clsf1 ... ignored
 test sharpen::tests::test_clsf2 ... ignored
 test sharpen::tests::test_clsfit2 ... ignored
-test hlparser::tests::bench_replace  ... bench:      12,014 ns/iter (+/- 1,954)
-test hlparser::tests::bench_simplify ... bench:      38,851 ns/iter (+/- 29,005)
-test sharpen::tests::bench_clsfit2   ... bench:       1,047 ns/iter (+/- 36)
+test hlparser::tests::bench_replace  ... bench:      12,278 ns/iter (+/- 212)
+test hlparser::tests::bench_simplify ... bench:      37,380 ns/iter (+/- 4,179)
+test sharpen::tests::bench_clsfit2   ... bench:         764 ns/iter (+/- 9)
 
 test result: ok. 0 passed; 0 failed; 7 ignored; 3 measured; 0 filtered out
 

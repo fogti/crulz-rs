@@ -161,7 +161,10 @@ mod tests {
             Some(0),
             None,
         ];
-        let res = input.into_iter().classify(|curo| curo.is_some()).collect::<Vec<_>>();
+        let res = input
+            .into_iter()
+            .classify(|curo| curo.is_some())
+            .collect::<Vec<_>>();
         assert_eq!(
             res,
             vec![
@@ -183,7 +186,10 @@ mod tests {
             Some(vec![2]),
             None,
         ];
-        let res = input.into_iter().classify(|curo| curo.is_some()).collect::<Vec<_>>();
+        let res = input
+            .into_iter()
+            .classify(|curo| curo.is_some())
+            .collect::<Vec<_>>();
         assert_eq!(
             res,
             vec![
@@ -228,6 +234,12 @@ mod tests {
             Some(vec![2]),
             None,
         ];
-        b.iter(|| input.clone().into_iter().classify(|curo| curo.is_some()).collect::<Vec<_>>());
+        b.iter(|| {
+            input
+                .clone()
+                .into_iter()
+                .classify(|curo| curo.is_some())
+                .collect::<Vec<_>>()
+        });
     }
 }
