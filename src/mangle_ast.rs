@@ -198,7 +198,10 @@ impl MangleAST for VAN {
 
     #[inline]
     fn to_u8v(self, escc: u8) -> Vec<u8> {
-        self.into_par_iter().map(|i| i.to_u8v(escc)).flatten().collect()
+        self.into_par_iter()
+            .map(|i| i.to_u8v(escc))
+            .flatten()
+            .collect()
     }
     #[inline]
     fn get_complexity(&self) -> usize {
@@ -269,8 +272,8 @@ impl MangleAST for VAN {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::ASTNode::*;
+    use super::*;
     extern crate test;
 
     #[test]

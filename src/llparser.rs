@@ -12,16 +12,14 @@ use crate::llparser::LLParserMode::*;
 
 impl LLParserMode {
     fn incr(mut self: &mut Self) {
-        match &mut self {
-            GroupN(ref mut x) => *x += 1,
-            _ => {}
-        };
+        if let GroupN(ref mut x) = &mut self {
+            *x += 1;
+        }
     }
     fn decr(mut self: &mut Self) {
-        match &mut self {
-            GroupN(ref mut x) => *x -= 1,
-            _ => {}
-        };
+        if let GroupN(ref mut x) = &mut self {
+            *x -= 1;
+        }
     }
 }
 
