@@ -20,7 +20,7 @@ impl std::default::Default for ASTNodeClass {
     }
 }
 
-pub trait MangleAST: Sized + Default + Clone {
+pub trait MangleAST: Default {
     type LiftT;
     // lift the AST one level up (ASTNode -> VAN || VAN -> ASTNode),
     // used as helper for MangleAST::simplify_inplace and others
@@ -36,15 +36,6 @@ pub trait MangleAST: Sized + Default + Clone {
         std::mem::replace(&mut self, Default::default())
     }
 
-    fn transform_cond<FnT>(&mut self, fnx: FnT)
-    where
-        FnT: FnOnce(Self) -> Option<Self>,
-    {
-        if let Some(x) = fnx(self.clone()) {
-            *self = x;
-        }
-    }
-
     #[inline]
     fn transform_inplace<FnT>(&mut self, fnx: FnT)
     where
@@ -52,16 +43,6 @@ pub trait MangleAST: Sized + Default + Clone {
     {
         *self = fnx(self.take());
     }
-
-    fn transform_recursive_cond<FnT>(&mut self, fnx: &FnT)
-    where
-        FnT: Send + Sync + Fn(ASTNode) -> Option<ASTNode>;
-
-    // transform_recursive is more effective for unconditional fnx'
-    // because it doesn't need to copy Self twice
-    fn transform_recursive<FnT>(&mut self, fnx: &FnT)
-    where
-        FnT: Send + Sync + Fn(ASTNode) -> ASTNode;
 
     #[inline]
     fn simplify_inplace(&mut self) {
@@ -123,34 +104,6 @@ impl MangleAST for ASTNode {
             Constant(_, x) => 1 + x.len(),
             Grouped(_, x) => 2 + x.get_complexity(),
             CmdEval(cmd, x) => 1 + cmd.len() + x.get_complexity(),
-        }
-    }
-
-    fn transform_recursive_cond<FnT>(mut self: &mut Self, fnx: &FnT)
-    where
-        FnT: Send + Sync + Fn(ASTNode) -> Option<ASTNode>,
-    {
-        self.transform_cond(fnx);
-        use crate::hlparser::ASTNode::*;
-        match &mut self {
-            Grouped(_, ref mut x) | CmdEval(_, ref mut x) => {
-                x.transform_recursive_cond(fnx);
-            }
-            _ => {}
-        }
-    }
-
-    fn transform_recursive<FnT>(mut self: &mut Self, fnx: &FnT)
-    where
-        FnT: Send + Sync + Fn(ASTNode) -> ASTNode,
-    {
-        self.transform_inplace(fnx);
-        use crate::hlparser::ASTNode::*;
-        match &mut self {
-            Grouped(_, ref mut x) | CmdEval(_, ref mut x) => {
-                x.transform_recursive(fnx);
-            }
-            _ => {}
         }
     }
 
@@ -245,26 +198,11 @@ impl MangleAST for VAN {
 
     #[inline]
     fn to_u8v(self, escc: u8) -> Vec<u8> {
-        self.into_iter().map(|i| i.to_u8v(escc)).flatten().collect()
+        self.into_par_iter().map(|i| i.to_u8v(escc)).flatten().collect()
     }
     #[inline]
     fn get_complexity(&self) -> usize {
         self.par_iter().map(|i| i.get_complexity()).sum()
-    }
-
-    fn transform_recursive_cond<FnT>(&mut self, fnx: &FnT)
-    where
-        FnT: Send + Sync + Fn(ASTNode) -> Option<ASTNode>,
-    {
-        self.par_iter_mut()
-            .for_each(|i| i.transform_recursive_cond(fnx))
-    }
-
-    fn transform_recursive<FnT>(&mut self, fnx: &FnT)
-    where
-        FnT: Send + Sync + Fn(ASTNode) -> ASTNode,
-    {
-        self.par_iter_mut().for_each(|i| i.transform_recursive(fnx))
     }
 
     fn simplify(mut self) -> Self {

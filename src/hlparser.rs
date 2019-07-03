@@ -16,20 +16,20 @@ pub enum ASTNode {
     CmdEval(String, Box<Vec<ASTNode>>),
 }
 
-// do NOT "use ASTNode::*;" here, because sometimes we want to "use ASTNodeClass::*;"
+use ASTNode::*;
 pub type VAN = Vec<ASTNode>;
 
 impl std::default::Default for ASTNode {
     #[inline]
     fn default() -> Self {
-        ASTNode::NullNode
+        NullNode
     }
 }
 
 impl ASTNode {
     pub fn as_constant(&self) -> Option<&Vec<u8>> {
         match &self {
-            ASTNode::Constant(_, x) => Some(x),
+            Constant(_, x) => Some(x),
             _ => None,
         }
     }
@@ -62,14 +62,14 @@ impl ToAST for Sections {
                 let first_space = section.iter().position(|&x| x.is_space());
                 let rest = first_space.map(|x| &section[x + 1..]).unwrap_or(&[]);
 
-                top.push(ASTNode::CmdEval(
+                top.push(CmdEval(
                     std::str::from_utf8(&section[0..first_space.unwrap_or(slen)])
                         .expect("got non-utf8 symbol")
                         .to_owned(),
                     Box::new(crossparse!(parse_whole, rest, escc)),
                 ));
             } else if section[0] == 40 && *section.last().unwrap() == 41 {
-                top.push(ASTNode::Grouped(
+                top.push(Grouped(
                     true,
                     Box::new(crossparse!(parse_whole, &section[1..slen - 1], escc)),
                 ));
@@ -77,7 +77,7 @@ impl ToAST for Sections {
                 top.par_extend(
                     classify_as_vec(section, |i| i.is_space())
                         .into_par_iter()
-                        .map(|(ccl, x)| ASTNode::Constant(!ccl, x)),
+                        .map(|(ccl, x)| Constant(!ccl, x)),
                 );
             }
         }
