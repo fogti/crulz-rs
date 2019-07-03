@@ -1,4 +1,4 @@
-use crate::hlparser::{ASTNode, VAN};
+use crate::ast::{ASTNode, VAN};
 use crate::mangle_ast::MangleAST;
 use std::{borrow::Cow, collections::HashMap};
 
@@ -142,7 +142,7 @@ trait Eval {
 
 impl Eval for ASTNode {
     fn eval(mut self: &mut Self, mut ctx: &mut EvalContext) {
-        use crate::hlparser::ASTNode::*;
+        use crate::ast::ASTNode::*;
         match &mut self {
             CmdEval(cmd, args) => {
                 if let Some(x) = eval_cmd(cmd, args2unspaced(args.clone()), &mut ctx) {

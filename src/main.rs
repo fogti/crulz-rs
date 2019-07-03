@@ -2,10 +2,12 @@
 
 extern crate clap;
 extern crate rayon;
+extern crate readfilez;
 
 #[macro_use]
-mod hlparser;
+mod ast;
 mod interp;
+mod lexer;
 mod llparser;
 mod mangle_ast;
 mod sharpen;
@@ -18,7 +20,7 @@ pub fn errmsg(s: &str) {
 }
 
 fn main() {
-    use crate::mangle_ast::MangleAST;
+    use crate::{ast::ToAST, mangle_ast::MangleAST};
     use clap::Arg;
 
     let matches = clap::App::new("crulz")
@@ -64,7 +66,7 @@ fn main() {
 
     let input_file = matches.value_of("INPUT").unwrap().to_owned();
 
-    let mut trs = crossparse!(llparser::file2secs, input_file, escc, escc_pass);
+    let mut trs = llparser::file2secs(input_file, escc, escc_pass).to_ast(escc, escc_pass);
 
     if vblvl > 1 {
         eprintln!("crulz: AST before evaluation:");

@@ -1,4 +1,4 @@
-use crate::hlparser::{ASTNode, VAN};
+use crate::ast::{ASTNode, VAN};
 use crate::sharpen::classify_as_vec;
 use rayon::prelude::*;
 
@@ -65,7 +65,7 @@ impl MangleAST for ASTNode {
     }
 
     fn to_u8v(self, escc: u8) -> Vec<u8> {
-        use crate::hlparser::ASTNode::*;
+        use crate::ast::ASTNode::*;
         match self {
             NullNode => vec![],
             Constant(_, x) => x,
@@ -98,7 +98,7 @@ impl MangleAST for ASTNode {
     }
 
     fn get_complexity(&self) -> usize {
-        use crate::hlparser::ASTNode::*;
+        use crate::ast::ASTNode::*;
         match &self {
             NullNode => 0,
             Constant(_, x) => 1 + x.len(),
@@ -108,7 +108,7 @@ impl MangleAST for ASTNode {
     }
 
     fn simplify(mut self) -> Self {
-        use crate::hlparser::ASTNode::*;
+        use crate::ast::ASTNode::*;
         let mut cplx = self.get_complexity();
         while let Grouped(is_strict, ref mut x) = &mut self {
             match x.len() {
@@ -147,7 +147,7 @@ impl MangleAST for ASTNode {
     }
 
     fn replace(self, from: &[u8], to: &ASTNode) -> Self {
-        use crate::hlparser::ASTNode::*;
+        use crate::ast::ASTNode::*;
         match self {
             Constant(true, x) => {
                 let flen = from.len();
@@ -223,7 +223,7 @@ impl MangleAST for VAN {
         })
         .into_par_iter()
         .map(|(d, i)| {
-            use crate::hlparser::ASTNode::*;
+            use crate::ast::ASTNode::*;
             macro_rules! recollect {
                 ($i:expr, $in:pat, $out:expr) => {
                     $i.into_par_iter()
