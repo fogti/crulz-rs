@@ -168,7 +168,7 @@ impl MangleAST for ASTNode {
                 .collect::<Vec<_>>()
                 .lift_ast()
             }
-            Grouped(is_strict, x) => Grouped(is_strict, Box::new(x.replace(from, to))),
+            Grouped(is_strict, x) => Grouped(is_strict, x.replace(from, to)),
             CmdEval(mut cmd, args) => {
                 // mangle cmd
                 if let Constant(true, to2) = &to {
@@ -181,7 +181,7 @@ impl MangleAST for ASTNode {
                 }
 
                 // mangle args
-                CmdEval(cmd, Box::new(args.replace(from, to)))
+                CmdEval(cmd, args.replace(from, to))
             }
             // we ignore spaces
             _ => self,
@@ -193,7 +193,7 @@ impl MangleAST for VAN {
     type LiftT = ASTNode;
     #[inline]
     fn lift_ast(self) -> Self::LiftT {
-        ASTNode::Grouped(false, Box::new(self))
+        ASTNode::Grouped(false, self)
     }
 
     #[inline]
@@ -244,7 +244,7 @@ impl MangleAST for VAN {
                 ASTNodeClass::Constant(x) => {
                     Constant(x, recollect!(i, Constant(_, y), y)).lift_ast()
                 }
-                ASTNodeClass::Grouped(false) => recollect!(i, Grouped(_, x), *x),
+                ASTNodeClass::Grouped(false) => recollect!(i, Grouped(_, x), x),
                 _ => i,
             }
         })

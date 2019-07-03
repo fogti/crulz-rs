@@ -145,7 +145,7 @@ impl Eval for ASTNode {
         use crate::hlparser::ASTNode::*;
         match &mut self {
             CmdEval(cmd, args) => {
-                if let Some(x) = eval_cmd(cmd, args2unspaced(*args.clone()), &mut ctx) {
+                if let Some(x) = eval_cmd(cmd, args2unspaced(args.clone()), &mut ctx) {
                     *self = x;
                 }
             }

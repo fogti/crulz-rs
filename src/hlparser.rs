@@ -7,9 +7,9 @@ pub enum ASTNode {
 
     /// Grouped: is_strict, elems
     /// loose groups are created while replacing patterns
-    Grouped(bool, Box<Vec<ASTNode>>),
+    Grouped(bool, Vec<ASTNode>),
 
-    CmdEval(String, Box<Vec<ASTNode>>),
+    CmdEval(String, Vec<ASTNode>),
 }
 
 use ASTNode::*;
@@ -64,12 +64,12 @@ impl ToAST for crate::llparser::Sections {
                     std::str::from_utf8(&section[0..first_space.unwrap_or(slen)])
                         .expect("got non-utf8 symbol")
                         .to_owned(),
-                    Box::new(crossparse!(parse_whole, rest, escc, pass_escc)),
+                    crossparse!(parse_whole, rest, escc, pass_escc),
                 ));
             } else if section[0] == 40 && *section.last().unwrap() == 41 {
                 top.push(Grouped(
                     true,
-                    Box::new(crossparse!(parse_whole, &section[1..slen - 1], escc, pass_escc)),
+                    crossparse!(parse_whole, &section[1..slen - 1], escc, pass_escc),
                 ));
             } else {
                 top.par_extend(
