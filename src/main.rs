@@ -8,8 +8,8 @@ extern crate readfilez;
 mod ast;
 mod interp;
 mod lexer;
-mod llparser;
 mod mangle_ast;
+mod parser;
 mod sharpen;
 
 use std::{io, io::Write};
@@ -66,7 +66,7 @@ fn main() {
 
     let input_file = matches.value_of("INPUT").unwrap().to_owned();
 
-    let mut trs = llparser::file2secs(input_file, escc, escc_pass).to_ast(escc, escc_pass);
+    let mut trs = parser::file2secs(input_file, escc, escc_pass).to_ast(escc, escc_pass);
 
     if vblvl > 1 {
         eprintln!("crulz: AST before evaluation:");

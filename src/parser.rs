@@ -6,7 +6,7 @@ enum LLParserMode {
     GroupN(u32),
 }
 
-use crate::llparser::LLParserMode::*;
+use self::LLParserMode::*;
 
 impl LLParserMode {
     fn incr(mut self: &mut Self) {
