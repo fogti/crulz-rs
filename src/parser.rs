@@ -1,6 +1,6 @@
 use crate::sharpen::*;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum LLParserMode {
     Normal,
     GroupN(u32),
@@ -24,101 +24,81 @@ impl LLParserMode {
 use crate::lexer::LowerLexerToken;
 type LLT = LowerLexerToken;
 
-struct LLParser {
-    pm: LLParserMode,
-    secs: TwoVec<LLT>,
-    prev: Option<LLT>,
-    pass_escc: bool,
-}
+fn llparse(pass_escc: bool, input: &[LLT]) -> std::io::Result<Vec<Vec<LLT>>> {
+    let mut pm = LLParserMode::Normal;
+    let mut secs = TwoVec::<LLT>::new();
+    let mut prev = Option::<LLT>::None;
 
-impl LLParser {
-    fn new(pass_escc: bool) -> Self {
-        Self {
-            pm: LLParserMode::Normal,
-            secs: TwoVec::new(),
-            prev: None,
-            pass_escc,
-        }
-    }
-
-    // we need to use (&mut self) because we can't invalidate self
-    // without making run_parser much more complex
-    fn finish(&mut self) -> std::io::Result<Vec<Vec<LLT>>> {
-        if let LLParserMode::Normal = self.pm {
-            Ok(self.secs.finish())
-        } else {
-            use std::io;
-            Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "LLParser::finish",
-            ))
-        }
-    }
-
-    fn feed(&mut self, input: &[LLT]) -> Vec<Vec<LLT>> {
-        // we should be able to parse non-utf8 input,
-        // as long as the parts starting with ESCC '(' ( and ending with ')')
-        // are valid utf8
-        for &i in input {
-            match self.pm {
-                Normal => {
-                    if i.is_escape() {
-                        self.prev = Some(i);
-                        self.pm = GroupN(0);
-                    } else {
-                        match i {
-                            LowerLexerToken::Paren(true) => {
-                                self.pm = GroupN(1);
-                                self.secs.up_push();
-                            }
-                            LowerLexerToken::Paren(false) => {
-                                panic!("crulz: WARNING: unexpected unbalanced ')'");
-                            }
-                            _ => {}
-                        }
-                        self.secs.push(i);
-                        self.prev = None;
-                    }
-                }
-                GroupN(0) => {
-                    // we are at the beginning of a command (after '\\'), expect '('
+    // we should be able to parse non-utf8 input,
+    // as long as the parts starting with ESCC '(' ( and ending with ')')
+    // are valid utf8
+    for &i in input {
+        match pm {
+            Normal => {
+                if i.is_escape() {
+                    prev = Some(i);
+                    pm = GroupN(0);
+                } else {
                     match i {
-                        // '(' // !')'
                         LowerLexerToken::Paren(true) => {
-                            self.pm = GroupN(1);
-                            self.secs.up_push();
-                            self.secs.push(self.prev.take().unwrap());
+                            pm = GroupN(1);
+                            secs.up_push();
                         }
-                        _ => {
-                            self.pm = Normal;
-                            if self.pass_escc {
-                                self.secs.push(self.prev.take().unwrap());
-                            } else {
-                                self.prev = None;
-                            }
-                        }
-                    }
-                    self.secs.push(i);
-                }
-                GroupN(x) => {
-                    self.secs.push(i);
-                    match i {
-                        LowerLexerToken::Paren(true) => self.pm.incr(),
                         LowerLexerToken::Paren(false) => {
-                            if x == 1 {
-                                self.pm = Normal;
-                                self.secs.up_push();
-                            } else {
-                                self.pm.decr();
-                            }
+                            panic!("crulz: WARNING: unexpected unbalanced ')'");
                         }
                         _ => {}
                     }
+                    secs.push(i);
+                    prev = None;
+                }
+            }
+            GroupN(0) => {
+                // we are at the beginning of a command (after '\\'), expect '('
+                match i {
+                    // '(' // !')'
+                    LowerLexerToken::Paren(true) => {
+                        pm = GroupN(1);
+                        secs.up_push();
+                        secs.push(prev.take().unwrap());
+                    }
+                    _ => {
+                        pm = Normal;
+                        if pass_escc {
+                            secs.push(prev.take().unwrap());
+                        } else {
+                            prev = None;
+                        }
+                    }
+                }
+                secs.push(i);
+            }
+            GroupN(x) => {
+                secs.push(i);
+                match i {
+                    LowerLexerToken::Paren(true) => pm.incr(),
+                    LowerLexerToken::Paren(false) => {
+                        if x == 1 {
+                            pm = Normal;
+                            secs.up_push();
+                        } else {
+                            pm.decr();
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
+    }
 
-        std::mem::replace(&mut self.secs.parts, vec![])
+    if LLParserMode::Normal == pm {
+        Ok(secs.finish())
+    } else {
+        use std::io;
+        Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "LLParser::finish",
+        ))
     }
 }
 
@@ -129,17 +109,11 @@ pub enum SectionType {
 }
 
 pub type Sections = Vec<(SectionType, Vec<LLT>)>;
-type ParserHelperFn<'a> = Box<dyn FnOnce(&mut LLParser) -> Vec<Vec<LLT>> + 'a>;
 
-fn run_parser<'a>(pass_escc: bool, fnx: ParserHelperFn<'a>) -> Sections {
-    let mut parser = LLParser::new(pass_escc);
-    let cls: Vec<ParserHelperFn<'_>> = vec![
-        fnx,
-        Box::new(|parser| parser.finish().expect("unexpected EOF")),
-    ];
-    cls.into_iter()
-        .map(|fnx| fnx(&mut parser))
-        .flatten()
+fn run_parser(pass_escc: bool, input: &[LLT]) -> Sections {
+    llparse(pass_escc, input)
+        .expect("unexpected EOF")
+        .into_iter()
         .map(|section| {
             assert!(!section.is_empty());
             if section[0].is_escape()
@@ -162,27 +136,19 @@ fn run_parser<'a>(pass_escc: bool, fnx: ParserHelperFn<'a>) -> Sections {
 pub fn file2secs(filename: String, escc: u8, pass_escc: bool) -> Sections {
     run_parser(
         pass_escc,
-        Box::new(|parser| {
-            readfilez::ContinuableFile::new(
-                std::fs::File::open(filename).expect("unable to open file"),
-            )
-            .to_chunks(readfilez::LengthSpec::new(None, true))
-            .map(|i| {
-                parser.feed(&crate::lexer::lex(
-                    i.expect("unable to read file").get_slice(),
-                    escc,
-                ))
-            })
-            .flatten()
-            .collect()
-        }),
+        &crate::lexer::lex(
+            readfilez::read_from_file(std::fs::File::open(filename))
+                .expect("unable to read file")
+                .get_slice(),
+            escc,
+        ),
     )
 }
 
 use crate::ast::*;
 
 fn parse_lexed_to_ast(input: &[LLT], escc: u8, pass_escc: bool) -> VAN {
-    run_parser(pass_escc, Box::new(|parser| parser.feed(input))).to_ast(escc, pass_escc)
+    run_parser(pass_escc, input).to_ast(escc, pass_escc)
 }
 
 impl ToAST for Sections {

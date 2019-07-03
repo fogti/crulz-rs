@@ -3,6 +3,8 @@ name = "crulz"
 version = "0.0.1"
 authors = ["Erik Zscheile <erik.zscheile@gmail.com>"]
 edition = "2018"
+exclude = ["docs/bench_results**.txt","*.sh"]
+repository = "https://github.com/zserik/crulz-rs"
 
 [dependencies]
 boolinator = "2.4"
