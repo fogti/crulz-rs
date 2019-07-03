@@ -30,7 +30,3 @@ impl ASTNode {
         }
     }
 }
-
-pub trait ToAST {
-    fn to_ast(self, escc: u8, pass_escc: bool) -> VAN;
-}

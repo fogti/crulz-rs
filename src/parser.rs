@@ -108,92 +108,78 @@ pub enum SectionType {
     CmdEval,
 }
 
-pub type Sections = Vec<(SectionType, Vec<LLT>)>;
+use crate::ast::VAN;
 
-fn run_parser(pass_escc: bool, input: &[LLT]) -> Sections {
-    llparse(pass_escc, input)
-        .expect("unexpected EOF")
-        .into_iter()
-        .map(|section| {
-            assert!(!section.is_empty());
-            if section[0].is_escape()
-                && section.len() > 2
-                && section[1] == LowerLexerToken::Paren(true)
-                && *section.last().unwrap() == LowerLexerToken::Paren(false)
-            {
-                (SectionType::CmdEval, section[2..section.len() - 1].to_vec())
-            } else if section[0] == LowerLexerToken::Paren(true)
-                && *section.last().unwrap() == LowerLexerToken::Paren(false)
-            {
-                (SectionType::Grouped, section[1..section.len() - 1].to_vec())
-            } else {
-                (SectionType::Normal, section)
+type ParserResult = Result<VAN, failure::Error>;
+
+fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
+    let llparsed = llparse(pass_escc, input)?.into_iter().map(|section| {
+        assert!(!section.is_empty());
+        if section[0].is_escape()
+            && section.len() > 2
+            && section[1] == LowerLexerToken::Paren(true)
+            && *section.last().unwrap() == LowerLexerToken::Paren(false)
+        {
+            (SectionType::CmdEval, section[2..section.len() - 1].to_vec())
+        } else if section[0] == LowerLexerToken::Paren(true)
+            && *section.last().unwrap() == LowerLexerToken::Paren(false)
+        {
+            (SectionType::Grouped, section[1..section.len() - 1].to_vec())
+        } else {
+            (SectionType::Normal, section)
+        }
+    });
+
+    let mut ret = VAN::new();
+
+    for (stype, section) in llparsed {
+        assert!(!section.is_empty());
+        use crate::ast::ASTNode::*;
+        use rayon::prelude::*;
+        match stype {
+            SectionType::CmdEval => {
+                let first_space = section.iter().position(|&x| x.is_space());
+                let rest = first_space.map(|x| &section[x + 1..]).unwrap_or(&[]);
+
+                ret.push(CmdEval(
+                    std::str::from_utf8(
+                        &section[0..first_space.unwrap_or_else(|| section.len())]
+                            .iter()
+                            .map(std::convert::Into::<u8>::into)
+                            .collect::<Vec<_>>(),
+                    )?
+                    .to_owned(),
+                    run_parser(rest, escc, pass_escc)?,
+                ));
             }
-        })
-        .collect()
-}
-
-pub fn file2secs(filename: String, escc: u8, pass_escc: bool) -> Sections {
-    run_parser(
-        pass_escc,
-        &crate::lexer::lex(
-            readfilez::read_from_file(std::fs::File::open(filename))
-                .expect("unable to read file")
-                .get_slice(),
-            escc,
-        ),
-    )
-}
-
-use crate::ast::*;
-
-fn parse_lexed_to_ast(input: &[LLT], escc: u8, pass_escc: bool) -> VAN {
-    run_parser(pass_escc, input).to_ast(escc, pass_escc)
-}
-
-impl ToAST for Sections {
-    fn to_ast(self, escc: u8, pass_escc: bool) -> VAN {
-        let mut top = VAN::new();
-
-        for (stype, section) in self {
-            assert!(!section.is_empty());
-            use crate::ast::ASTNode::*;
-            use rayon::prelude::*;
-            match stype {
-                SectionType::CmdEval => {
-                    let first_space = section.iter().position(|&x| x.is_space());
-                    let rest = first_space.map(|x| &section[x + 1..]).unwrap_or(&[]);
-
-                    top.push(CmdEval(
-                        std::str::from_utf8(
-                            &section[0..first_space.unwrap_or_else(|| section.len())]
-                                .iter()
-                                .map(std::convert::Into::<u8>::into)
-                                .collect::<Vec<_>>(),
-                        )
-                        .expect("got non-utf8 symbol")
-                        .to_owned(),
-                        parse_lexed_to_ast(rest, escc, pass_escc),
-                    ));
-                }
-                SectionType::Grouped => {
-                    top.push(Grouped(true, parse_lexed_to_ast(&section, escc, pass_escc)));
-                }
-                SectionType::Normal => {
-                    top.par_extend(
-                        classify_as_vec(section, |i| i.is_space())
-                            .into_par_iter()
-                            .map(|(ccl, x)| {
-                                Constant(
-                                    !ccl,
-                                    x.into_iter().map(std::convert::Into::<u8>::into).collect(),
-                                )
-                            }),
-                    );
-                }
+            SectionType::Grouped => {
+                ret.push(Grouped(true, run_parser(&section, escc, pass_escc)?));
+            }
+            SectionType::Normal => {
+                ret.par_extend(
+                    classify_as_vec(section, |i| i.is_space())
+                        .into_par_iter()
+                        .map(|(ccl, x)| {
+                            Constant(
+                                !ccl,
+                                x.into_iter().map(std::convert::Into::<u8>::into).collect(),
+                            )
+                        }),
+                );
             }
         }
-
-        top
     }
+
+    Ok(ret)
+}
+
+pub fn file2ast(filename: String, escc: u8, pass_escc: bool) -> ParserResult {
+    run_parser(
+        &crate::lexer::lex(
+            readfilez::read_from_file(std::fs::File::open(filename))?.get_slice(),
+            escc,
+        ),
+        escc,
+        pass_escc,
+    )
 }
