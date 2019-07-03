@@ -72,7 +72,7 @@ impl LLParser {
                                 self.secs.up_push();
                             }
                             LowerLexerToken::Paren(false) => {
-                                eprintln!("crulz: WARNING: unexpected unbalanced ')'");
+                                panic!("crulz: WARNING: unexpected unbalanced ')'");
                             }
                             _ => {}
                         }
@@ -159,10 +159,6 @@ fn run_parser<'a>(pass_escc: bool, fnx: ParserHelperFn<'a>) -> Sections {
         .collect()
 }
 
-pub fn parse_lexed(input: &[LLT], pass_escc: bool) -> Sections {
-    run_parser(pass_escc, Box::new(|parser| parser.feed(input)))
-}
-
 pub fn file2secs(filename: String, escc: u8, pass_escc: bool) -> Sections {
     run_parser(
         pass_escc,
@@ -184,6 +180,10 @@ pub fn file2secs(filename: String, escc: u8, pass_escc: bool) -> Sections {
 }
 
 use crate::ast::*;
+
+fn parse_lexed_to_ast(input: &[LLT], escc: u8, pass_escc: bool) -> VAN {
+    run_parser(pass_escc, Box::new(|parser| parser.feed(input))).to_ast(escc, pass_escc)
+}
 
 impl ToAST for Sections {
     fn to_ast(self, escc: u8, pass_escc: bool) -> VAN {
@@ -207,14 +207,11 @@ impl ToAST for Sections {
                         )
                         .expect("got non-utf8 symbol")
                         .to_owned(),
-                        parse_lexed(rest, pass_escc).to_ast(escc, pass_escc),
+                        parse_lexed_to_ast(rest, escc, pass_escc),
                     ));
                 }
                 SectionType::Grouped => {
-                    top.push(Grouped(
-                        true,
-                        parse_lexed(&section, pass_escc).to_ast(escc, pass_escc),
-                    ));
+                    top.push(Grouped(true, parse_lexed_to_ast(&section, escc, pass_escc)));
                 }
                 SectionType::Normal => {
                     top.par_extend(
