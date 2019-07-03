@@ -1,7 +1,3 @@
-use crate::llparser::Sections;
-use crate::sharpen::classify_as_vec;
-use rayon::prelude::*;
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum ASTNode {
     NullNode,
@@ -36,28 +32,30 @@ impl ASTNode {
 }
 
 macro_rules! crossparse {
-    ($fn:path, $input:expr, $escc:ident) => {{
+    ($fn:path, $input:expr, $escc:ident, $pass_escc:ident) => {{
         // we don't want to import this in every file using this macro
         // but we use it in this file too, and want to suppress the
         // warning about that
         #[allow(unused_imports)]
         use crate::hlparser::ToAST;
-        $fn($input, $escc).to_ast($escc)
+        $fn($input, $escc, $pass_escc).to_ast($escc, $pass_escc)
     }};
 }
 
 pub trait ToAST {
-    fn to_ast(self, escc: u8) -> VAN;
+    fn to_ast(self, escc: u8, pass_escc: bool) -> VAN;
 }
 
-impl ToAST for Sections {
-    fn to_ast(self, escc: u8) -> VAN {
+impl ToAST for crate::llparser::Sections {
+    fn to_ast(self, escc: u8, pass_escc: bool) -> VAN {
         let mut top = Vec::<ASTNode>::new();
 
         for (is_cmdeval, section) in self {
             assert!(!section.is_empty());
             let slen = section.len();
             use crate::llparser::{parse_whole, IsSpace};
+            use crate::sharpen::classify_as_vec;
+            use rayon::prelude::*;
             if is_cmdeval {
                 let first_space = section.iter().position(|&x| x.is_space());
                 let rest = first_space.map(|x| &section[x + 1..]).unwrap_or(&[]);
@@ -66,12 +64,12 @@ impl ToAST for Sections {
                     std::str::from_utf8(&section[0..first_space.unwrap_or(slen)])
                         .expect("got non-utf8 symbol")
                         .to_owned(),
-                    Box::new(crossparse!(parse_whole, rest, escc)),
+                    Box::new(crossparse!(parse_whole, rest, escc, pass_escc)),
                 ));
             } else if section[0] == 40 && *section.last().unwrap() == 41 {
                 top.push(Grouped(
                     true,
-                    Box::new(crossparse!(parse_whole, &section[1..slen - 1], escc)),
+                    Box::new(crossparse!(parse_whole, &section[1..slen - 1], escc, pass_escc)),
                 ));
             } else {
                 top.par_extend(

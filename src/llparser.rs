@@ -27,14 +27,16 @@ struct LLParser {
     pm: LLParserMode,
     secs: TwoVec<u8>,
     escc: u8,
+    pass_escc: bool,
 }
 
 impl LLParser {
-    fn new(escc: u8) -> Self {
+    fn new(escc: u8, pass_escc: bool) -> Self {
         Self {
             pm: LLParserMode::Normal,
             secs: TwoVec::new(),
             escc,
+            pass_escc,
         }
     }
 
@@ -69,11 +71,8 @@ impl LLParser {
                                 self.secs.up_push();
                             }
                             41 => {
-                                use std::io::Write; // !'('
-                                let _ = writeln!(
-                                    std::io::stderr(),
-                                    "crulz: WARNING: unexpected unbalanced ')'"
-                                );
+                                // !'('
+                                eprintln!("crulz: WARNING: unexpected unbalanced ')'");
                             }
                             _ => {}
                         }
@@ -91,6 +90,9 @@ impl LLParser {
                         }
                         _ => {
                             self.pm = Normal;
+                            if self.pass_escc {
+                                self.secs.push(self.escc);
+                            }
                         }
                     }
                     self.secs.push(i);
@@ -133,8 +135,8 @@ impl IsSpace for u8 {
 pub type Sections = Vec<(bool, Vec<u8>)>;
 type ParserHelperFn<'a> = Box<dyn FnOnce(&mut LLParser) -> Vec<Vec<u8>> + 'a>;
 
-fn run_parser<'a>(escc: u8, fnx: ParserHelperFn<'a>) -> Sections {
-    let mut parser = LLParser::new(escc);
+fn run_parser<'a>(escc: u8, pass_escc: bool, fnx: ParserHelperFn<'a>) -> Sections {
+    let mut parser = LLParser::new(escc, pass_escc);
     let cls: Vec<ParserHelperFn<'_>> = vec![
         fnx,
         Box::new(|parser| parser.finish().expect("unexpected EOF")),
@@ -144,7 +146,7 @@ fn run_parser<'a>(escc: u8, fnx: ParserHelperFn<'a>) -> Sections {
         .flatten()
         .map(|section| {
             assert!(!section.is_empty());
-            if section[0] == escc {
+            if section[0] == escc && section.len() > 2 && section[1] == 40 && *section.last().unwrap() == 41 {
                 (true, section[2..section.len() - 1].to_vec())
             } else {
                 (false, section)
@@ -153,13 +155,14 @@ fn run_parser<'a>(escc: u8, fnx: ParserHelperFn<'a>) -> Sections {
         .collect()
 }
 
-pub fn parse_whole(input: &[u8], escc: u8) -> Sections {
-    run_parser(escc, Box::new(|parser| parser.feed(input)))
+pub fn parse_whole(input: &[u8], escc: u8, pass_escc: bool) -> Sections {
+    run_parser(escc, pass_escc, Box::new(|parser| parser.feed(input)))
 }
 
-pub fn file2secs(filename: String, escc: u8) -> Sections {
+pub fn file2secs(filename: String, escc: u8, pass_escc: bool) -> Sections {
     run_parser(
         escc,
+        pass_escc,
         Box::new(|parser| {
             readfilez::ContinuableFile::new(
                 std::fs::File::open(filename).expect("unable to open file"),

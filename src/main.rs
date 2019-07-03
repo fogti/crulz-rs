@@ -39,6 +39,12 @@ fn main() {
                 .help("sets the escape character"),
         )
         .arg(
+            Arg::with_name("pass-escc")
+                .short("p")
+                .long("pass-escc")
+                .help("if set, double escape character gets passed through"),
+        )
+        .arg(
             Arg::with_name("v")
                 .short("v")
                 .long("verbose")
@@ -53,11 +59,12 @@ fn main() {
     }
     let escc = escc[0] as u8;
 
+    let escc_pass = matches.is_present("pass-escc");
     let vblvl = matches.occurrences_of("v");
 
     let input_file = matches.value_of("INPUT").unwrap().to_owned();
 
-    let mut trs = crossparse!(llparser::file2secs, input_file, escc);
+    let mut trs = crossparse!(llparser::file2secs, input_file, escc, escc_pass);
 
     if vblvl > 1 {
         eprintln!("crulz: AST before evaluation:");
