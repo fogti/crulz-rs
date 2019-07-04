@@ -38,9 +38,6 @@ impl std::default::Default for LLCPR {
 }
 
 fn llparse(input: &[LLT], escc: u8, pass_escc: bool) -> std::io::Result<Vec<Vec<LLT>>> {
-    let mut pm = LLParserMode::Normal;
-    let mut secs = TwoVec::<LLT>::new();
-
     // we should be able to parse non-utf8 input,
     // as long as the parts starting with ESCC '(' ( and ending with ')')
     // are valid utf8
@@ -51,81 +48,80 @@ fn llparse(input: &[LLT], escc: u8, pass_escc: bool) -> std::io::Result<Vec<Vec<
     let mut nesting: usize = 0;
 
     use std::time::Instant;
-    use rayon::prelude::*;
 
     let now = Instant::now();
-    let classified_ret = classify_as_vec(input.into_iter().map(|i| *i), |i| {
-        match nesting {
-            0 => {
-                clret = LLCPR::Normal;
-                match i {
-                    LowerLexerToken::Escape(_) => {
-                        clret = LLCPR::Escaped;
-                        is_escaped = true;
+    let classified_ret = input
+        .into_iter()
+        .map(|i| *i)
+        .classify(|i| {
+            match nesting {
+                0 => {
+                    clret = LLCPR::Normal;
+                    match i {
+                        LowerLexerToken::Escape(_) => {
+                            clret = LLCPR::Escaped;
+                            is_escaped = true;
+                        }
+                        LowerLexerToken::Paren(true) => {
+                            clret = LLCPR::Grouped;
+                        }
+                        LowerLexerToken::Paren(false) => {
+                            // '('
+                            panic!("crulz: ERROR: unexpected unbalanced ')'");
+                        }
+                        _ => {}
                     }
-                    LowerLexerToken::Paren(true) => {
-                        clret = LLCPR::Grouped;
-                    }
-                    LowerLexerToken::Paren(false) => {
-                        // '('
-                        panic!("crulz: ERROR: unexpected unbalanced ')'");
-                    }
-                    _ => {}
-                }
-                if clret != LLCPR::Normal {
-                    nesting += 1;
-                    flipp ^= true;
-                }
-            }
-            1 if is_escaped => { // escaped
-                is_escaped = false;
-                match i {
-                    LowerLexerToken::Paren(true) => {
-                        // we can't do 'nesting += 1;' here,
-                        // because we want '\(...)' in one blob
-                    }
-                    LowerLexerToken::Paren(false) => {
-                        // '('
-                        panic!("crulz: ERROR: got dangerous '\\)'");
-                    }
-                    _ => {
-                        nesting -= 1;
-                        clret = LLCPR::Normal;
-                        let old_flipp = flipp;
-                        flipp ^= true;
-                        return (old_flipp, LLCPR::Escaped);
-                    }
-                }
-            }
-            _ => { // grouped
-                match i {
-                    LowerLexerToken::Paren(true) => {
+                    if clret != LLCPR::Normal {
                         nesting += 1;
+                        flipp ^= true;
                     }
-                    LowerLexerToken::Paren(false) => {
-                        nesting -= 1;
+                }
+                1 if is_escaped => {
+                    // escaped
+                    is_escaped = false;
+                    match i {
+                        LowerLexerToken::Paren(true) => {
+                            // we can't do 'nesting += 1;' here,
+                            // because we want '\(...)' in one blob
+                        }
+                        LowerLexerToken::Paren(false) => {
+                            // '('
+                            panic!("crulz: ERROR: got dangerous '\\)'");
+                        }
+                        _ => {
+                            nesting -= 1;
+                            clret = LLCPR::Normal;
+                            let old_flipp = flipp;
+                            flipp ^= true;
+                            return (old_flipp, LLCPR::Escaped);
+                        }
                     }
-                    _ => {}
+                }
+                _ => {
+                    // grouped
+                    match i {
+                        LowerLexerToken::Paren(true) => {
+                            nesting += 1;
+                        }
+                        LowerLexerToken::Paren(false) => {
+                            nesting -= 1;
+                        }
+                        _ => {}
+                    }
                 }
             }
-        }
-        return (flipp, clret);
-    }).into_par_iter()
-    .map(|((_, d), i)| {
-        match d {
-            LLCPR::Escaped if !pass_escc && i.len() == 2 => {
-                if let LowerLexerToken::Paren(true) = i[1] {
-                    panic!("crulz: INTERNAL ERROR: unbalanced opening '('"); // ')'
-                }
-                vec![i[1]]
-            }
+            return (flipp, clret);
+        })
+        .map(|((_, d), i)| match d {
+            LLCPR::Escaped if !pass_escc && i.len() == 2 => vec![i[1]],
             _ => i,
-        }
-    })
-    .collect::<Vec<Vec<LLT>>>();
-    println!("clf : {} µs", now.elapsed().as_micros());
+        })
+        .collect::<Vec<Vec<LLT>>>();
+    let clf_timing = now.elapsed().as_nanos();
 
     let now = Instant::now();
+    let mut pm = LLParserMode::Normal;
+    let mut secs = TwoVec::<LLT>::new();
     for &i in input {
         match pm {
             Normal => {
@@ -184,7 +180,13 @@ fn llparse(input: &[LLT], escc: u8, pass_escc: bool) -> std::io::Result<Vec<Vec<
     }
 
     let ret = secs.finish();
-    println!("old : {} µs", now.elapsed().as_micros());
+    let old_timing = now.elapsed().as_nanos();
+    println!(
+        "clf {} ns // old {} ns // {} %",
+        clf_timing,
+        old_timing,
+        (clf_timing * 100) / old_timing
+    );
 
     if ret != classified_ret {
         println!("=== parser return values differ ===");
