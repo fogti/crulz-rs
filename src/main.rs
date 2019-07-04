@@ -54,6 +54,12 @@ fn main() {
                 .multiple(true)
                 .help("sets the level of verbosity"),
         )
+        .arg(
+            Arg::with_name("quiet")
+                .short("q")
+                .long("quiet")
+                .help("if set, suppress output of evaluated data"),
+        )
         .get_matches();
 
     let escc = matches.value_of("escc").unwrap_or("\\").as_bytes();
@@ -84,8 +90,10 @@ fn main() {
         eprintln!("----");
     }
 
-    let rsb = trs.to_u8v(escc);
-    io::stdout()
-        .write_all(&rsb)
-        .expect("unable to write reser-result");
+    if !matches.is_present("quiet") {
+        let rsb = trs.to_u8v(escc);
+        io::stdout()
+            .write_all(&rsb)
+            .expect("unable to write reser-result");
+    }
 }

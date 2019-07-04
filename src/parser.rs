@@ -54,60 +54,54 @@ fn llparse(input: &[LLT], escc: u8, pass_escc: bool) -> std::io::Result<Vec<Vec<
         .into_iter()
         .map(|i| *i)
         .classify(|i| {
-            match nesting {
-                0 => {
-                    clret = LLCPR::Normal;
-                    match i {
-                        LowerLexerToken::Escape(_) => {
-                            clret = LLCPR::Escaped;
-                            is_escaped = true;
-                        }
-                        LowerLexerToken::Paren(true) => {
-                            clret = LLCPR::Grouped;
-                        }
-                        LowerLexerToken::Paren(false) => {
-                            // '('
-                            panic!("crulz: ERROR: unexpected unbalanced ')'");
-                        }
-                        _ => {}
+            if is_escaped {
+                is_escaped = false;
+                match i {
+                    LowerLexerToken::Paren(true) => {
+                        // we can't do 'nesting += 1;' here,
+                        // because we want '\(...)' in one blob
                     }
-                    if clret != LLCPR::Normal {
-                        nesting += 1;
+                    LowerLexerToken::Paren(false) => {
+                        // '('
+                        panic!("crulz: ERROR: got dangerous '\\)'");
+                    }
+                    _ => {
+                        nesting = 0;
+                        clret = LLCPR::Normal;
                         flipp ^= true;
+                        return (!flipp, LLCPR::Escaped);
                     }
                 }
-                1 if is_escaped => {
-                    // escaped
-                    is_escaped = false;
-                    match i {
-                        LowerLexerToken::Paren(true) => {
-                            // we can't do 'nesting += 1;' here,
-                            // because we want '\(...)' in one blob
-                        }
-                        LowerLexerToken::Paren(false) => {
-                            // '('
-                            panic!("crulz: ERROR: got dangerous '\\)'");
-                        }
-                        _ => {
-                            nesting -= 1;
-                            clret = LLCPR::Normal;
-                            let old_flipp = flipp;
-                            flipp ^= true;
-                            return (old_flipp, LLCPR::Escaped);
-                        }
+            } else if nesting == 0 {
+                clret = LLCPR::Normal;
+                match i {
+                    LowerLexerToken::Escape(_) => {
+                        clret = LLCPR::Escaped;
+                        is_escaped = true;
                     }
+                    LowerLexerToken::Paren(true) => {
+                        clret = LLCPR::Grouped;
+                    }
+                    LowerLexerToken::Paren(false) => {
+                        // '('
+                        panic!("crulz: ERROR: unexpected unbalanced ')'");
+                    }
+                    _ => {}
                 }
-                _ => {
-                    // grouped
-                    match i {
-                        LowerLexerToken::Paren(true) => {
-                            nesting += 1;
-                        }
-                        LowerLexerToken::Paren(false) => {
-                            nesting -= 1;
-                        }
-                        _ => {}
+                if clret != LLCPR::Normal {
+                    nesting = 1;
+                    flipp ^= true;
+                }
+            } else {
+                // grouped
+                match i {
+                    LowerLexerToken::Paren(true) => {
+                        nesting += 1;
                     }
+                    LowerLexerToken::Paren(false) => {
+                        nesting -= 1;
+                    }
+                    _ => {}
                 }
             }
             return (flipp, clret);
@@ -127,6 +121,7 @@ fn llparse(input: &[LLT], escc: u8, pass_escc: bool) -> std::io::Result<Vec<Vec<
             Normal => {
                 if i.is_escape() {
                     pm = GroupN(0);
+                    secs.up_push();
                 } else {
                     match i {
                         LowerLexerToken::Paren(true) => {
@@ -181,12 +176,14 @@ fn llparse(input: &[LLT], escc: u8, pass_escc: bool) -> std::io::Result<Vec<Vec<
 
     let ret = secs.finish();
     let old_timing = now.elapsed().as_nanos();
-    println!(
-        "clf {} ns // old {} ns // {} %",
-        clf_timing,
-        old_timing,
-        (clf_timing * 100) / old_timing
-    );
+    if clf_timing > 1000 || old_timing > 1000 {
+        println!(
+            "clf {} ns // old {} ns // {} %",
+            clf_timing,
+            old_timing,
+            (clf_timing * 100) / old_timing
+        );
+    }
 
     if ret != classified_ret {
         println!("=== parser return values differ ===");
@@ -207,6 +204,7 @@ fn llparse(input: &[LLT], escc: u8, pass_escc: bool) -> std::io::Result<Vec<Vec<
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub enum SectionType {
     Normal,
     Grouped,
@@ -235,10 +233,13 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
         }
     });
 
+    use std::time::Instant;
+    let now = Instant::now();
     let mut ret = VAN::new();
-
     for (stype, section) in llparsed {
-        assert!(!section.is_empty());
+        if section.is_empty() && stype == SectionType::CmdEval {
+            panic!("crulz: ERROR: got empty eval stmt");
+        }
         use crate::ast::ASTNode::*;
         use rayon::prelude::*;
         match stype {
@@ -273,6 +274,10 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
                 );
             }
         }
+    }
+    let pt3_timing = now.elapsed().as_nanos();
+    if pt3_timing > 1000 {
+        println!("run_parser, sectiontyped2VAN : {} ns", pt3_timing);
     }
 
     Ok(ret)
