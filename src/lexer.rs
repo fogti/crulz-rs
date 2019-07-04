@@ -1,6 +1,6 @@
 extern crate readfilez;
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum LowerLexerToken {
     Constant(bool, u8),
     // Paren ? opening : closing
