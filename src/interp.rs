@@ -13,6 +13,8 @@ type DefinesMap = HashMap<Cow<'static, str>, InterpValue>;
 
 struct EvalContext {
     defs: DefinesMap,
+    escc: u8,
+    pass_escc: bool,
 }
 
 fn args2unspaced(args: VAN) -> VAN {
@@ -87,6 +89,19 @@ mod builtin {
             x
         }).collect::<Vec<_>>().lift_ast().simplify())
     });
+
+    define_blti!(include((mut args), ctx) {
+        let mut x = args[0].take();
+        x.eval(&mut ctx);
+        x.simplify_inplace();
+        let filename = std::str::from_utf8(x.as_constant()?)
+            .expect("expected utf8 filename")
+            .to_owned();
+        Some(crate::parser::file2ast(filename, ctx.escc, ctx.pass_escc)
+            .expect("expected valid file")
+            .lift_ast()
+            .simplify())
+    });
 }
 
 fn register_builtin_(
@@ -99,7 +114,7 @@ fn register_builtin_(
 }
 
 impl EvalContext {
-    fn new() -> Self {
+    fn new(escc: u8, pass_escc: bool) -> Self {
         let mut defs = DefinesMap::new();
         macro_rules! register_builtins {
             ($defs:ident, $($fn:ident $ac:expr),+) => {
@@ -108,8 +123,12 @@ impl EvalContext {
                 )+
             };
         }
-        register_builtins!(defs, add Some(2), def None, une None);
-        Self { defs }
+        register_builtins!(defs, add Some(2), def None, include Some(1), une None);
+        Self {
+            defs,
+            escc,
+            pass_escc,
+        }
     }
 }
 
@@ -166,8 +185,8 @@ impl Eval for VAN {
     }
 }
 
-pub fn eval(data: &mut VAN) {
-    let mut ctx = EvalContext::new();
+pub fn eval(data: &mut VAN, escc: u8, pass_escc: bool) {
+    let mut ctx = EvalContext::new(escc, pass_escc);
     let mut cplx = data.get_complexity();
     loop {
         data.eval(&mut ctx);

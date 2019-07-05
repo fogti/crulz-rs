@@ -106,7 +106,11 @@ fn main() {
         eprintln!("----");
     }
 
-    timing_of!(print_timings, interp::eval, interp::eval(&mut trs));
+    timing_of!(
+        print_timings,
+        interp::eval,
+        interp::eval(&mut trs, escc, escc_pass)
+    );
 
     if vblvl > 0 {
         eprintln!("crulz: AST after evaluation:");
