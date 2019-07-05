@@ -253,7 +253,7 @@ impl MangleAST for VAN {
                 true
             }
         })
-        .collect::<Self>()
+        .collect()
     }
     #[inline]
     fn replace_inplace(&mut self, from: &[u8], to: &ASTNode) {

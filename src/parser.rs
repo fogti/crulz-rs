@@ -169,8 +169,8 @@ pub fn file2ast(filename: String, escc: u8, pass_escc: bool) -> ParserResult {
         pass_escc,
     );
     let parse_timing = now.elapsed().as_micros();
-    if parse_timing > 1 {
-        println!("file2ast {} μs", parse_timing);
+    if parse_timing >= 500 {
+        eprintln!("crulz: file2ast {} μs", parse_timing);
     }
     ret
 }
