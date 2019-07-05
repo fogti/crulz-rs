@@ -115,7 +115,7 @@ fn llparse(input: &[LLT], escc: u8, pass_escc: bool) -> std::io::Result<Vec<Vec<
 
     let now = Instant::now();
     let mut pm = LLParserMode::Normal;
-    let mut secs = TwoVec::<LLT>::new();
+    let mut secs: TwoVec<LLT> = Default::default();
     for &i in input {
         match pm {
             Normal => {

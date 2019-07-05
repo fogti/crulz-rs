@@ -6,13 +6,6 @@ pub struct TwoVec<T> {
 }
 
 impl<T> TwoVec<T> {
-    pub fn new() -> Self {
-        Self {
-            parts: vec![],
-            last: vec![],
-        }
-    }
-
     fn take<TT>(mut x: &mut Vec<TT>) -> Vec<TT> {
         std::mem::replace(&mut x, vec![])
     }
@@ -31,6 +24,15 @@ impl<T> TwoVec<T> {
 
     pub fn push(&mut self, x: T) {
         self.last.push(x);
+    }
+}
+
+impl<T> Default for TwoVec<T> {
+    fn default() -> Self {
+        Self {
+            parts: vec![],
+            last: vec![],
+        }
     }
 }
 
