@@ -127,7 +127,7 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
                 _ => (SectionType::Normal, &section[..]),
             };
             use crate::ast::ASTNode::*;
-            match stype {
+            Ok(match stype {
                 SectionType::CmdEval => {
                     let first_space = section.iter().position(|&x| x.is_space());
                     let rest = first_space.map(|x| &section[x + 1..]).unwrap_or(&[]);
@@ -138,15 +138,14 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
                                 .iter()
                                 .map(std::convert::Into::<u8>::into)
                                 .collect::<Vec<_>>(),
-                        )
-                        .expect("cmdeval utf8-conv failed")
+                        )?
                         .to_owned(),
-                        run_parser(rest, escc, pass_escc).expect("sub-parser failed"),
+                        run_parser(rest, escc, pass_escc)?,
                     )
                 }
                 SectionType::Grouped => Grouped(
                     true,
-                    run_parser(&section, escc, pass_escc).expect("sub-parser failed"),
+                    run_parser(&section, escc, pass_escc)?,
                 ),
                 SectionType::Normal | SectionType::NormalSpace => Constant(
                     stype == SectionType::Normal,
@@ -155,9 +154,9 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
                         .map(std::convert::Into::<u8>::into)
                         .collect(),
                 ),
-            }
+            })
         })
-        .collect::<Vec<_>>();
+        .collect::<ParserResult>();
 
     let parse_timing = now.elapsed().as_micros();
     if parse_timing != 0 {
@@ -168,7 +167,7 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
         panic!("crulz ERROR: unexpected EOF");
     }
 
-    Ok(ret)
+    ret
 }
 
 pub fn file2ast(filename: String, escc: u8, pass_escc: bool) -> ParserResult {
