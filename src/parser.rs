@@ -10,20 +10,13 @@ enum LLCPR {
     NormalSpace,
     Grouped,
     Escaped,
+    CmdEval,
 }
 
 impl std::default::Default for LLCPR {
     fn default() -> Self {
         LLCPR::Normal
     }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum SectionType {
-    Normal,
-    NormalSpace,
-    Grouped,
-    CmdEval,
 }
 
 type ParserResult = Result<VAN, failure::Error>;
@@ -110,7 +103,7 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
             let slen = section.len();
             let (stype, section) = match d {
                 LLCPR::Escaped if !pass_escc && slen == 2 => {
-                    (SectionType::Normal, std::slice::from_ref(&section[1]))
+                    (LLCPR::Normal, std::slice::from_ref(&section[1]))
                 }
                 LLCPR::Escaped
                     if slen > 2
@@ -120,15 +113,14 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
                     if slen == 3 {
                         panic!("crulz: ERROR: got empty eval stmt");
                     }
-                    (SectionType::CmdEval, &section[2..slen - 1])
+                    (LLCPR::CmdEval, &section[2..slen - 1])
                 }
-                LLCPR::Grouped => (SectionType::Grouped, &section[1..slen - 1]),
-                LLCPR::NormalSpace => (SectionType::NormalSpace, &section[..]),
-                _ => (SectionType::Normal, &section[..]),
+                LLCPR::Grouped => (d, &section[1..slen - 1]),
+                _ => (d, &section[..]),
             };
             use crate::ast::ASTNode::*;
             Ok(match stype {
-                SectionType::CmdEval => {
+                LLCPR::CmdEval => {
                     let first_space = section.iter().position(|&x| x.is_space());
                     CmdEval(
                         std::str::from_utf8(&section2u8v(
@@ -142,9 +134,9 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
                         )?,
                     )
                 }
-                SectionType::Grouped => Grouped(true, run_parser(&section, escc, pass_escc)?),
-                SectionType::Normal | SectionType::NormalSpace => {
-                    Constant(stype == SectionType::Normal, section2u8v(&section[..]))
+                LLCPR::Grouped => Grouped(true, run_parser(&section, escc, pass_escc)?),
+                LLCPR::Normal | LLCPR::NormalSpace | LLCPR::Escaped => {
+                    Constant(stype != LLCPR::NormalSpace, section2u8v(&section[..]))
                 }
             })
         })

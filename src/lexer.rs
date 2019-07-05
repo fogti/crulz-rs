@@ -12,13 +12,6 @@ use LowerLexerToken::*;
 
 impl LowerLexerToken {
     #[inline]
-    pub fn is_escape(self) -> bool {
-        match self {
-            Escape(_) => true,
-            _ => false,
-        }
-    }
-    #[inline]
     pub fn is_space(self) -> bool {
         match self {
             Constant(false, _) => true,
