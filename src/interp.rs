@@ -1,7 +1,7 @@
 use crate::ast::{ASTNode, VAN};
 use crate::mangle_ast::MangleAST;
-use std::borrow::Cow;
 use hashbrown::hash_map::HashMap;
+use std::borrow::Cow;
 
 #[derive(Clone)]
 enum InterpValue {

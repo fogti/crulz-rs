@@ -73,8 +73,8 @@ fn main() {
 
     let input_file = matches.value_of("INPUT").unwrap().to_owned();
 
-    let mut trs =
-        parser::file2ast(input_file, escc, escc_pass).expect("crulz: failed to parse input file");
+    let mut trs = parser::file2ast(input_file, escc, escc_pass, vblvl > 0)
+        .expect("crulz: failed to parse input file");
 
     if vblvl > 1 {
         eprintln!("crulz: AST before evaluation:");

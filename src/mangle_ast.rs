@@ -198,9 +198,7 @@ impl MangleAST for VAN {
 
     #[inline]
     fn to_u8v(self, escc: u8) -> Vec<u8> {
-        self.into_par_iter()
-            .flat_map(|i| i.to_u8v(escc))
-            .collect()
+        self.into_par_iter().flat_map(|i| i.to_u8v(escc)).collect()
     }
     #[inline]
     fn get_complexity(&self) -> usize {
