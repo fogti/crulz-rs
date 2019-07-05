@@ -158,8 +158,7 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
     ret
 }
 
-pub fn file2ast(filename: String, escc: u8, pass_escc: bool, verbose: bool) -> ParserResult {
-    let now = std::time::Instant::now();
+pub fn file2ast(filename: String, escc: u8, pass_escc: bool) -> ParserResult {
     let ret = run_parser(
         &crate::lexer::lex(
             readfilez::read_from_file(std::fs::File::open(filename))?.get_slice(),
@@ -168,11 +167,5 @@ pub fn file2ast(filename: String, escc: u8, pass_escc: bool, verbose: bool) -> P
         escc,
         pass_escc,
     );
-    if verbose {
-        let parse_timing = now.elapsed().as_micros();
-        if parse_timing >= 500 {
-            eprintln!("crulz: file2ast {} μs", parse_timing);
-        }
-    }
     ret
 }

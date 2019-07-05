@@ -20,6 +20,20 @@ pub fn errmsg(s: &str) {
     std::process::exit(1);
 }
 
+macro_rules! timing_of {
+    ($print_timings:ident, $name:path, $fn:expr) => {{
+        let now = std::time::Instant::now();
+        let ret = $fn;
+        if $print_timings {
+            let elp = now.elapsed().as_micros();
+            if elp > 9 {
+                eprintln!("crulz: timings: {} {} μs", stringify!($name), elp);
+            }
+        }
+        ret
+    }};
+}
+
 fn main() {
     use crate::mangle_ast::MangleAST;
     use clap::Arg;
@@ -48,6 +62,12 @@ fn main() {
                 .help("if set, double escape character gets passed through"),
         )
         .arg(
+            Arg::with_name("timings")
+                .short("t")
+                .long("timings")
+                .help("if set, output various timings"),
+        )
+        .arg(
             Arg::with_name("v")
                 .short("v")
                 .long("verbose")
@@ -70,11 +90,15 @@ fn main() {
 
     let escc_pass = matches.is_present("pass-escc");
     let vblvl = matches.occurrences_of("v");
+    let print_timings = matches.is_present("timings");
 
     let input_file = matches.value_of("INPUT").unwrap().to_owned();
 
-    let mut trs = parser::file2ast(input_file, escc, escc_pass, vblvl > 0)
-        .expect("crulz: failed to parse input file");
+    let mut trs = timing_of!(
+        print_timings,
+        parser::file2ast,
+        parser::file2ast(input_file, escc, escc_pass).expect("crulz: failed to parse input file")
+    );
 
     if vblvl > 1 {
         eprintln!("crulz: AST before evaluation:");
@@ -82,7 +106,7 @@ fn main() {
         eprintln!("----");
     }
 
-    interp::eval(&mut trs);
+    timing_of!(print_timings, interp::eval, interp::eval(&mut trs));
 
     if vblvl > 0 {
         eprintln!("crulz: AST after evaluation:");
