@@ -1,5 +1,3 @@
-extern crate boolinator;
-
 pub struct ClassifyIT<'a, TT: 'a, TC, FnT, IT>
 where
     TC: Copy + Default + std::cmp::PartialEq,

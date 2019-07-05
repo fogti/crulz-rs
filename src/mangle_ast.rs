@@ -199,8 +199,7 @@ impl MangleAST for VAN {
     #[inline]
     fn to_u8v(self, escc: u8) -> Vec<u8> {
         self.into_par_iter()
-            .map(|i| i.to_u8v(escc))
-            .flatten()
+            .flat_map(|i| i.to_u8v(escc))
             .collect()
     }
     #[inline]
@@ -222,19 +221,18 @@ impl MangleAST for VAN {
             }
         })
         .into_par_iter()
-        .map(|(d, i)| {
+        .flat_map(|(d, i)| {
             use crate::ast::ASTNode::*;
             macro_rules! recollect {
                 ($i:expr, $in:pat, $out:expr) => {
                     $i.into_par_iter()
-                        .map(|j| {
+                        .flat_map(|j| {
                             if let $in = j {
                                 $out
                             } else {
                                 unsafe { std::hint::unreachable_unchecked() }
                             }
                         })
-                        .flatten()
                         .collect()
                 };
             };
@@ -248,7 +246,6 @@ impl MangleAST for VAN {
                 _ => i,
             }
         })
-        .flatten()
         .filter(|i| {
             if let ASTNode::NullNode = i {
                 false

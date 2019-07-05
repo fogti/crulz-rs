@@ -7,7 +7,6 @@ exclude = ["docs/bench_results**.txt","*.sh"]
 repository = "https://github.com/zserik/crulz-rs"
 
 [dependencies]
-boolinator = "2.4"
 clap = "~2.33"
 failure = "0.1.5"
 rayon = "1.1"
