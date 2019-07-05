@@ -29,6 +29,10 @@ use crate::ast::VAN;
 
 type ParserResult = Result<VAN, failure::Error>;
 
+fn section2u8v(input: &[LLT]) -> Vec<u8> {
+    input.iter().map(std::convert::Into::<u8>::into).collect()
+}
+
 fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
     // we should be able to parse non-utf8 input,
     // as long as the parts starting with ESCC '(' ( and ending with ')')
@@ -39,9 +43,6 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
     let mut clret = LLCPR::Normal;
     let mut nesting: usize = 0;
 
-    use std::time::Instant;
-
-    let now = Instant::now();
     let ret = input
         .into_iter()
         .copied()
@@ -130,38 +131,25 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
             Ok(match stype {
                 SectionType::CmdEval => {
                     let first_space = section.iter().position(|&x| x.is_space());
-                    let rest = first_space.map(|x| &section[x + 1..]).unwrap_or(&[]);
-
                     CmdEval(
-                        std::str::from_utf8(
-                            &section[0..first_space.unwrap_or_else(|| section.len())]
-                                .iter()
-                                .map(std::convert::Into::<u8>::into)
-                                .collect::<Vec<_>>(),
-                        )?
+                        std::str::from_utf8(&section2u8v(
+                            &section[0..first_space.unwrap_or_else(|| section.len())],
+                        ))?
                         .to_owned(),
-                        run_parser(rest, escc, pass_escc)?,
+                        run_parser(
+                            first_space.map(|x| &section[x + 1..]).unwrap_or(&[]),
+                            escc,
+                            pass_escc,
+                        )?,
                     )
                 }
-                SectionType::Grouped => Grouped(
-                    true,
-                    run_parser(&section, escc, pass_escc)?,
-                ),
-                SectionType::Normal | SectionType::NormalSpace => Constant(
-                    stype == SectionType::Normal,
-                    section
-                        .into_iter()
-                        .map(std::convert::Into::<u8>::into)
-                        .collect(),
-                ),
+                SectionType::Grouped => Grouped(true, run_parser(&section, escc, pass_escc)?),
+                SectionType::Normal | SectionType::NormalSpace => {
+                    Constant(stype == SectionType::Normal, section2u8v(&section[..]))
+                }
             })
         })
         .collect::<ParserResult>();
-
-    let parse_timing = now.elapsed().as_micros();
-    if parse_timing != 0 {
-        println!("run_parser {} μs", parse_timing);
-    }
 
     if nesting != 0 {
         panic!("crulz ERROR: unexpected EOF");
@@ -171,12 +159,18 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
 }
 
 pub fn file2ast(filename: String, escc: u8, pass_escc: bool) -> ParserResult {
-    run_parser(
+    let now = std::time::Instant::now();
+    let ret = run_parser(
         &crate::lexer::lex(
             readfilez::read_from_file(std::fs::File::open(filename))?.get_slice(),
             escc,
         ),
         escc,
         pass_escc,
-    )
+    );
+    let parse_timing = now.elapsed().as_micros();
+    if parse_timing > 1 {
+        println!("file2ast {} μs", parse_timing);
+    }
+    ret
 }

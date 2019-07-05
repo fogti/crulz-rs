@@ -1,0 +1,1134 @@
+\(def a 0 \(une lool))\(a)\(a)
+\(def a 0 (1x ({-}) x))\(def b 3 ($2 $1 $0))\(b \(une \(a)))\(a)
+((0 1 2))
+\(def a 2 $0$1)\(a 1 2)
+\(add \(a) \(a))\(def a 0 1)
+\(def h1 1 <h1>\(une $0)</h1>)\(une
+)\(h1 (Hallo?))
+\(def nl 0 \(une (
+)))\(def a 0 a \(nl) b)\(a)
+\\a
+#[derive(Clone, Debug, PartialEq)]
+pub enum ASTNode {
+    NullNode,
+
+    /// Constant: is_non_space, data
+    Constant(bool, Vec<u8>),
+
+    /// Grouped: is_strict, elems
+    /// loose groups are created while replacing patterns
+    Grouped(bool, Vec<ASTNode>),
+
+    CmdEval(String, Vec<ASTNode>),
+}
+
+use ASTNode::*;
+pub type VAN = Vec<ASTNode>;
+
+impl std::default::Default for ASTNode {
+    #[inline]
+    fn default() -> Self {
+        NullNode
+    }
+}
+
+impl ASTNode {
+    pub fn as_constant(&self) -> Option<&Vec<u8>> {
+        match &self {
+            Constant(_, x) => Some(x),
+            _ => None,
+        }
+    }
+}
+use crate::ast::{ASTNode, VAN};
+use crate::mangle_ast::MangleAST;
+use std::{borrow::Cow, collections::HashMap};
+
+#[derive(Clone)]
+enum InterpValue {
+    BuiltIn(Option<usize>, fn(VAN, &mut EvalContext) -> Option<ASTNode>),
+    Data(usize, ASTNode),
+}
+
+type DefinesMap = HashMap<Cow<'static, str>, InterpValue>;
+
+struct EvalContext {
+    defs: DefinesMap,
+}
+
+fn args2unspaced(args: VAN) -> VAN {
+    use rayon::prelude::*;
+    crate::sharpen::classify_as_vec(args, |i| match i {
+        ASTNode::NullNode | ASTNode::Constant(false, _) => false,
+        _ => true,
+    })
+    .into_par_iter()
+    .filter(|(d, _)| *d)
+    .map(|(_, i)| i.lift_ast().simplify())
+    .collect()
+}
+
+mod builtin {
+    use super::*;
+
+    macro_rules! define_blti {
+        ($name:ident($args:tt, $ctx:ident) $body:tt) => {
+            #[allow(unused_parens)]
+            pub(super) fn $name($args: VAN, mut $ctx: &mut EvalContext) -> Option<ASTNode> $body
+        }
+    }
+
+    define_blti!(add(args, ctx) {
+        let unpacked = args.into_iter().filter_map(|mut x| {
+            x.eval(&mut ctx);
+            x.simplify_inplace();
+            Some(std::str::from_utf8(x.as_constant()?).ok()?
+            .parse::<i64>()
+            .expect("expected number as @param"))
+        }).collect::<Vec<_>>();
+        if unpacked.len() != 2 {
+            // if any argument wasn't evaluated --> dropped --> different len()
+            return None;
+        }
+        Some(ASTNode::Constant(true, (unpacked[0] + unpacked[1]).to_string().into_bytes()))
+    });
+
+    define_blti!(def((mut args), ctx) {
+        if args.len() < 3 {
+            return None;
+        }
+        let mut unpack = |x: &mut ASTNode| {
+            let mut y = x.take();
+            y.eval(&mut ctx);
+            y.simplify()
+        };
+        use std::str;
+        let varname = unpack(&mut args[0]);
+        let argc = unpack(&mut args[1]);
+        let varname = str::from_utf8(varname.as_constant()?)
+            .expect("expected utf8 varname")
+            .to_owned();
+        let argc: usize = str::from_utf8(argc.as_constant()?)
+            .expect("expected utf8 argc")
+            .parse()
+            .expect("expected number as argc");
+        let value = args[2..].to_vec().lift_ast().simplify();
+        ctx.defs
+            .insert(Cow::from(varname), InterpValue::Data(argc, value));
+        Some(ASTNode::NullNode)
+    });
+
+    define_blti!(une(args, ctx) {
+        Some(args.into_iter().map(|mut x| {
+            x.eval(&mut ctx);
+            x.simplify_inplace();
+            if let ASTNode::Grouped(ref mut is_strict, _) = x {
+                *is_strict = false;
+            }
+            x
+        }).collect::<Vec<_>>().lift_ast().simplify())
+    });
+}
+
+fn register_builtin_(
+    defs: &mut DefinesMap,
+    name: &'static str,
+    argc: Option<usize>,
+    fnx: fn(VAN, &mut EvalContext) -> Option<ASTNode>,
+) {
+    defs.insert(Cow::from(name), InterpValue::BuiltIn(argc, fnx));
+}
+
+impl EvalContext {
+    fn new() -> Self {
+        let mut defs = DefinesMap::new();
+        macro_rules! register_builtins {
+            ($defs:ident, $($fn:ident $ac:expr),+) => {
+                $(
+                register_builtin_(&mut $defs, stringify!($fn), $ac, builtin::$fn);
+                )+
+            };
+        }
+        register_builtins!(defs, add Some(2), def None, une None);
+        Self { defs }
+    }
+}
+
+fn eval_cmd(cmd: &str, mut args: VAN, mut ctx: &mut EvalContext) -> Option<ASTNode> {
+    let val = ctx.defs.get(&Cow::from(cmd))?;
+    use crate::interp::InterpValue::*;
+    match &val {
+        BuiltIn(a, x) => match a {
+            Some(n) if args.len() != *n => None,
+            _ => x(args, &mut ctx),
+        },
+        Data(n, x) => {
+            if args.len() < *n {
+                return None;
+            }
+            let mut tmp = x.clone();
+            for i in (0..*n).rev() {
+                args[i].eval(ctx);
+                tmp = tmp
+                    .replace(format!("${}", i).as_bytes(), &args[i])
+                    .simplify();
+            }
+            Some(tmp)
+        }
+    }
+}
+
+trait Eval {
+    fn eval(&mut self, ctx: &mut EvalContext);
+}
+
+impl Eval for ASTNode {
+    fn eval(mut self: &mut Self, mut ctx: &mut EvalContext) {
+        use crate::ast::ASTNode::*;
+        match &mut self {
+            CmdEval(cmd, args) => {
+                if let Some(x) = eval_cmd(cmd, args2unspaced(args.clone()), &mut ctx) {
+                    *self = x;
+                }
+            }
+            Grouped(_, x) => {
+                x.eval(&mut ctx);
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Eval for VAN {
+    fn eval(&mut self, mut ctx: &mut EvalContext) {
+        for i in self {
+            i.eval(&mut ctx);
+        }
+    }
+}
+
+pub fn eval(data: &mut VAN) {
+    let mut ctx = EvalContext::new();
+    let mut cplx = data.get_complexity();
+    loop {
+        data.eval(&mut ctx);
+        data.simplify_inplace();
+        let new_cplx = data.get_complexity();
+        if new_cplx == cplx {
+            break;
+        }
+        cplx = new_cplx;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_args2unspaced() {
+        use ASTNode::*;
+        assert_eq!(
+            args2unspaced(vec![
+                Constant(true, vec![0]),
+                Constant(false, vec![0]),
+                Constant(true, vec![0]),
+                Constant(true, vec![0]),
+                Constant(false, vec![0])
+            ]),
+            vec![Constant(true, vec![0]), Constant(true, vec![0, 0])]
+        );
+    }
+}
+extern crate readfilez;
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum LowerLexerToken {
+    Constant(bool, u8),
+    // Paren ? opening : closing
+    Paren(bool),
+    Escape(u8),
+}
+
+use LowerLexerToken::*;
+
+impl LowerLexerToken {
+    #[inline]
+    pub fn is_escape(self) -> bool {
+        match self {
+            Escape(_) => true,
+            _ => false,
+        }
+    }
+    #[inline]
+    pub fn is_space(self) -> bool {
+        match self {
+            Constant(false, _) => true,
+            _ => false,
+        }
+    }
+}
+
+impl Into<u8> for LowerLexerToken {
+    fn into(self) -> u8 {
+        match self {
+            Constant(_, x) | Escape(x) => x,
+            Paren(true) => 40,
+            Paren(false) => 41,
+        }
+    }
+}
+
+impl Into<u8> for &LowerLexerToken {
+    #[inline]
+    fn into(self) -> u8 {
+        Into::<u8>::into(*self)
+    }
+}
+
+pub fn lex(input: &[u8], escc: u8) -> Vec<LowerLexerToken> {
+    use rayon::prelude::*;
+    input
+        .par_iter()
+        .map(|&i| match i {
+            _ if i == escc => Escape(escc),
+            9 | 10 | 11 | 12 | 13 | 32 => Constant(false, i),
+            40 => Paren(true),  // '('
+            41 => Paren(false), // ')'
+            _ => Constant(true, i),
+        })
+        .collect()
+}
+#![cfg_attr(test, feature(test))]
+
+extern crate clap;
+extern crate failure;
+extern crate rayon;
+extern crate readfilez;
+
+#[macro_use]
+mod ast;
+mod interp;
+mod lexer;
+mod mangle_ast;
+mod parser;
+mod sharpen;
+
+use std::{io, io::Write};
+
+pub fn errmsg(s: &str) {
+    eprintln!("crulz: ERROR: {}", s);
+    std::process::exit(1);
+}
+
+fn main() {
+    use crate::mangle_ast::MangleAST;
+    use clap::Arg;
+
+    let matches = clap::App::new("crulz")
+        .version("0.0.1")
+        .author("Erik Zscheile <erik.zscheile@gmail.com>")
+        .about("a macro language parser + interpreter")
+        .arg(
+            Arg::with_name("INPUT")
+                .help("sets the input file to use")
+                .required(true)
+                .index(1),
+        )
+        .arg(
+            Arg::with_name("escc")
+                .short("e")
+                .long("escc")
+                .takes_value(true)
+                .help("sets the escape character"),
+        )
+        .arg(
+            Arg::with_name("pass-escc")
+                .short("p")
+                .long("pass-escc")
+                .help("if set, double escape character gets passed through"),
+        )
+        .arg(
+            Arg::with_name("v")
+                .short("v")
+                .long("verbose")
+                .multiple(true)
+                .help("sets the level of verbosity"),
+        )
+        .arg(
+            Arg::with_name("quiet")
+                .short("q")
+                .long("quiet")
+                .help("if set, suppress output of evaluated data"),
+        )
+        .get_matches();
+
+    let escc = matches.value_of("escc").unwrap_or("\\").as_bytes();
+    if escc.len() != 1 {
+        errmsg("invalid escc argument");
+    }
+    let escc = escc[0] as u8;
+
+    let escc_pass = matches.is_present("pass-escc");
+    let vblvl = matches.occurrences_of("v");
+
+    let input_file = matches.value_of("INPUT").unwrap().to_owned();
+
+    let mut trs =
+        parser::file2ast(input_file, escc, escc_pass).expect("crulz: failed to parse input file");
+
+    if vblvl > 1 {
+        eprintln!("crulz: AST before evaluation:");
+        eprintln!("{:#?}", &trs);
+        eprintln!("----");
+    }
+
+    interp::eval(&mut trs);
+
+    if vblvl > 0 {
+        eprintln!("crulz: AST after evaluation:");
+        eprintln!("{:#?}", &trs);
+        eprintln!("----");
+    }
+
+    if !matches.is_present("quiet") {
+        let rsb = trs.to_u8v(escc);
+        io::stdout()
+            .write_all(&rsb)
+            .expect("unable to write reser-result");
+    }
+}
+use crate::ast::{ASTNode, VAN};
+use crate::sharpen::classify_as_vec;
+use rayon::prelude::*;
+
+// do NOT "use ASTNode::*;" here, because sometimes we want to "use ASTNodeClass::*;"
+
+// helper for MangleAST::simplify_inplace
+#[derive(Copy, Clone, Debug, PartialEq)]
+enum ASTNodeClass {
+    NullNode,
+    Constant(bool),
+    Grouped(bool),
+    CmdEval,
+}
+
+impl std::default::Default for ASTNodeClass {
+    #[inline]
+    fn default() -> Self {
+        ASTNodeClass::NullNode
+    }
+}
+
+pub trait MangleAST: Default {
+    type LiftT;
+    // lift the AST one level up (ASTNode -> VAN || VAN -> ASTNode),
+    // used as helper for MangleAST::simplify_inplace and others
+    // to convert to the appropriate datatype
+    fn lift_ast(self) -> Self::LiftT;
+
+    fn to_u8v(self, escc: u8) -> Vec<u8>;
+
+    /// helper for MangleAST::simplify_inplace
+    fn get_complexity(&self) -> usize;
+
+    fn take(mut self: &mut Self) -> Self {
+        std::mem::replace(&mut self, Default::default())
+    }
+
+    #[inline]
+    fn transform_inplace<FnT>(&mut self, fnx: FnT)
+    where
+        FnT: FnOnce(Self) -> Self,
+    {
+        *self = fnx(self.take());
+    }
+
+    #[inline]
+    fn simplify_inplace(&mut self) {
+        self.transform_inplace(|x| x.simplify());
+    }
+
+    /// this replace function works on byte-basis and honours ASTNode boundaries
+    fn replace_inplace(&mut self, from: &[u8], to: &ASTNode);
+    fn replace(self, from: &[u8], to: &ASTNode) -> Self;
+
+    /// this cleanup up the AST, opposite of two lift_ast invocations
+    fn simplify(self) -> Self;
+}
+
+impl MangleAST for ASTNode {
+    type LiftT = VAN;
+    #[inline]
+    fn lift_ast(self) -> Self::LiftT {
+        vec![self]
+    }
+
+    fn to_u8v(self, escc: u8) -> Vec<u8> {
+        use crate::ast::ASTNode::*;
+        match self {
+            NullNode => vec![],
+            Constant(_, x) => x,
+            Grouped(is_strict, elems) => {
+                let mut inner = elems.to_u8v(escc);
+                let mut ret = Vec::<u8>::with_capacity(2 + inner.len());
+                if is_strict {
+                    ret.push(40);
+                }
+                ret.append(&mut inner);
+                if is_strict {
+                    ret.push(41);
+                }
+                ret
+            }
+            CmdEval(cmd, args) => {
+                let mut rest = args.to_u8v(escc);
+                let mut ret = Vec::<u8>::with_capacity(4 + cmd.len() + rest.len());
+                ret.push(escc);
+                ret.push(40);
+                ret.extend_from_slice(cmd.as_bytes());
+                if !rest.is_empty() {
+                    ret.push(32);
+                    ret.append(&mut rest);
+                }
+                ret.push(41);
+                ret
+            }
+        }
+    }
+
+    fn get_complexity(&self) -> usize {
+        use crate::ast::ASTNode::*;
+        match &self {
+            NullNode => 0,
+            Constant(_, x) => 1 + x.len(),
+            Grouped(_, x) => 2 + x.get_complexity(),
+            CmdEval(cmd, x) => 1 + cmd.len() + x.get_complexity(),
+        }
+    }
+
+    fn simplify(mut self) -> Self {
+        use crate::ast::ASTNode::*;
+        let mut cplx = self.get_complexity();
+        while let Grouped(is_strict, ref mut x) = &mut self {
+            match x.len() {
+                0 => {
+                    if !*is_strict {
+                        self = NullNode;
+                    }
+                }
+                1 => {
+                    let y = x[0].take();
+                    if *is_strict {
+                        if let Grouped(_, z) = y {
+                            *x = z;
+                        } else {
+                            // swap it back, omit clone
+                            x[0] = y.simplify();
+                        }
+                    } else {
+                        self = y;
+                    }
+                }
+                _ => x.simplify_inplace(),
+            }
+            let new_cplx = self.get_complexity();
+            if new_cplx >= cplx {
+                break;
+            }
+            cplx = new_cplx;
+        }
+        self
+    }
+
+    #[inline]
+    fn replace_inplace(&mut self, from: &[u8], to: &ASTNode) {
+        self.transform_inplace(|x| x.replace(from, to))
+    }
+
+    fn replace(self, from: &[u8], to: &ASTNode) -> Self {
+        use crate::ast::ASTNode::*;
+        match self {
+            Constant(true, x) => {
+                let flen = from.len();
+                let mut skp: usize = 0;
+                classify_as_vec(x, |&i| {
+                    let ret = skp != flen && i == from[skp];
+                    skp = if ret { skp + 1 } else { 0 };
+                    ret
+                })
+                .into_par_iter()
+                .map(|(d, i)| {
+                    if d && i.len() == flen {
+                        to.clone()
+                    } else {
+                        Constant(true, i)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .lift_ast()
+            }
+            Grouped(is_strict, x) => Grouped(is_strict, x.replace(from, to)),
+            CmdEval(mut cmd, args) => {
+                // mangle cmd
+                if let Constant(true, to2) = &to {
+                    use std::str;
+                    if let Ok(from2) = str::from_utf8(from) {
+                        if let Ok(to3) = str::from_utf8(&to2) {
+                            cmd = cmd.replace(from2, to3);
+                        }
+                    }
+                }
+
+                // mangle args
+                CmdEval(cmd, args.replace(from, to))
+            }
+            // we ignore spaces
+            _ => self,
+        }
+    }
+}
+
+impl MangleAST for VAN {
+    type LiftT = ASTNode;
+    #[inline]
+    fn lift_ast(self) -> Self::LiftT {
+        ASTNode::Grouped(false, self)
+    }
+
+    #[inline]
+    fn to_u8v(self, escc: u8) -> Vec<u8> {
+        self.into_par_iter()
+            .map(|i| i.to_u8v(escc))
+            .flatten()
+            .collect()
+    }
+    #[inline]
+    fn get_complexity(&self) -> usize {
+        self.par_iter().map(|i| i.get_complexity()).sum()
+    }
+
+    fn simplify(mut self) -> Self {
+        self.par_iter_mut().for_each(|i| i.simplify_inplace());
+        classify_as_vec(self, |i| {
+            use crate::mangle_ast::ASTNodeClass::*;
+            match &i {
+                ASTNode::Grouped(false, x) if x.is_empty() => NullNode,
+                ASTNode::Constant(_, x) if x.is_empty() => NullNode,
+                ASTNode::Constant(s, _) => Constant(*s),
+                ASTNode::Grouped(s, _) => Grouped(*s),
+                ASTNode::CmdEval(_, _) => CmdEval,
+                _ => NullNode,
+            }
+        })
+        .into_par_iter()
+        .map(|(d, i)| {
+            use crate::ast::ASTNode::*;
+            macro_rules! recollect {
+                ($i:expr, $in:pat, $out:expr) => {
+                    $i.into_par_iter()
+                        .map(|j| {
+                            if let $in = j {
+                                $out
+                            } else {
+                                unsafe { std::hint::unreachable_unchecked() }
+                            }
+                        })
+                        .flatten()
+                        .collect()
+                };
+            };
+            match d {
+                ASTNodeClass::NullNode => NullNode.lift_ast(),
+                _ if i.len() < 2 => i,
+                ASTNodeClass::Constant(x) => {
+                    Constant(x, recollect!(i, Constant(_, y), y)).lift_ast()
+                }
+                ASTNodeClass::Grouped(false) => recollect!(i, Grouped(_, x), x),
+                _ => i,
+            }
+        })
+        .flatten()
+        .filter(|i| {
+            if let ASTNode::NullNode = i {
+                false
+            } else {
+                true
+            }
+        })
+        .collect::<Self>()
+    }
+    #[inline]
+    fn replace_inplace(&mut self, from: &[u8], to: &ASTNode) {
+        self.par_iter_mut()
+            .for_each(|i| i.replace_inplace(from, to));
+    }
+    #[inline]
+    fn replace(mut self, from: &[u8], to: &ASTNode) -> Self {
+        self.replace_inplace(from, to);
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ASTNode::*;
+    use super::*;
+    extern crate test;
+
+    #[test]
+    fn test_replace() {
+        assert_eq!(
+            vec![Constant(true, vec![0, 1, 2, 3])]
+                .lift_ast()
+                .replace(&vec![1, 2], &Constant(true, vec![4])),
+            vec![
+                Constant(true, vec![0]),
+                Constant(true, vec![4]),
+                Constant(true, vec![3])
+            ]
+            .lift_ast()
+            .lift_ast()
+            .lift_ast()
+        );
+    }
+
+    #[test]
+    fn test_simplify() {
+        let ast = vec![
+            Constant(true, vec![0]),
+            Constant(true, vec![4])
+                .lift_ast()
+                .lift_ast()
+                .lift_ast()
+                .lift_ast(),
+            Constant(true, vec![3]),
+        ]
+        .lift_ast()
+        .lift_ast()
+        .lift_ast();
+        assert_eq!(ast.simplify(), Constant(true, vec![0, 4, 3]));
+    }
+
+    #[bench]
+    fn bench_replace(b: &mut test::Bencher) {
+        let ast = Constant(true, vec![0, 1, 2, 3]).lift_ast().lift_ast();
+        b.iter(|| ast.clone().replace(&vec![1, 2], &Constant(true, vec![4])));
+    }
+
+    #[bench]
+    fn bench_simplify(b: &mut test::Bencher) {
+        let ast = vec![
+            Constant(true, vec![0]),
+            Constant(true, vec![4])
+                .lift_ast()
+                .lift_ast()
+                .lift_ast()
+                .lift_ast(),
+            Constant(true, vec![3]),
+        ]
+        .lift_ast()
+        .lift_ast()
+        .lift_ast();
+        b.iter(|| ast.clone().simplify());
+    }
+}
+use crate::sharpen::*;
+
+use crate::lexer::LowerLexerToken;
+type LLT = LowerLexerToken;
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+enum LLCPR {
+    Normal,
+    NormalSpace,
+    Grouped,
+    Escaped,
+}
+
+impl std::default::Default for LLCPR {
+    fn default() -> Self {
+        LLCPR::Normal
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum SectionType {
+    Normal,
+    NormalSpace,
+    Grouped,
+    CmdEval,
+}
+
+use crate::ast::VAN;
+
+type ParserResult = Result<VAN, failure::Error>;
+
+fn section2u8v(input: &[LLT]) -> Vec<u8> {
+    input.iter()
+        .map(std::convert::Into::<u8>::into)
+        .collect()
+}
+
+fn run_parser(input: &[LLT], escc: u8, pass_escc: bool, recid: u8) -> ParserResult {
+    // we should be able to parse non-utf8 input,
+    // as long as the parts starting with ESCC '(' ( and ending with ')')
+    // are valid utf8
+
+    let mut is_escaped = false;
+    let mut flipp = false;
+    let mut clret = LLCPR::Normal;
+    let mut nesting: usize = 0;
+
+    use std::time::Instant;
+    use rayon::prelude::*;
+
+    let now = Instant::now();
+    let ret = input
+        .into_iter()
+        .copied()
+        .classify(|i| {
+            if is_escaped {
+                is_escaped = false;
+                match i {
+                    LowerLexerToken::Paren(true) => {
+                        // we can't do 'nesting += 1;' here,
+                        // because we want '\(...)' in one blob
+                    }
+                    LowerLexerToken::Paren(false) => {
+                        // '('
+                        panic!("crulz: ERROR: got dangerous '\\)'");
+                    }
+                    _ => {
+                        nesting = 0;
+                        clret = LLCPR::Normal;
+                        flipp ^= true;
+                        return (!flipp, LLCPR::Escaped);
+                    }
+                }
+            } else if nesting == 0 {
+                clret = LLCPR::Normal;
+                match i {
+                    LowerLexerToken::Escape(_) => {
+                        clret = LLCPR::Escaped;
+                        is_escaped = true;
+                    }
+                    LowerLexerToken::Paren(true) => {
+                        clret = LLCPR::Grouped;
+                    }
+                    LowerLexerToken::Paren(false) => {
+                        // '('
+                        panic!("crulz: ERROR: unexpected unbalanced ')'");
+                    }
+                    _ => {}
+                }
+                if clret != LLCPR::Normal {
+                    nesting = 1;
+                    flipp ^= true;
+                }
+            } else {
+                // grouped
+                match i {
+                    LowerLexerToken::Paren(true) => {
+                        nesting += 1;
+                    }
+                    LowerLexerToken::Paren(false) => {
+                        nesting -= 1;
+                    }
+                    _ => {}
+                }
+            }
+            (
+                flipp,
+                if clret == LLCPR::Normal && i.is_space() {
+                    LLCPR::NormalSpace
+                } else {
+                    clret
+                },
+            )
+        })
+        .map(|((_, d), section)| {
+            assert!(!section.is_empty());
+            let slen = section.len();
+            let (stype, section) = match d {
+                LLCPR::Escaped if !pass_escc && slen == 2 => {
+                    (SectionType::Normal, std::slice::from_ref(&section[1]))
+                }
+                LLCPR::Escaped
+                    if slen > 2
+                        && section[1] == LowerLexerToken::Paren(true)
+                        && *section.last().unwrap() == LowerLexerToken::Paren(false) =>
+                {
+                    if slen == 3 {
+                        panic!("crulz: ERROR: got empty eval stmt");
+                    }
+                    (SectionType::CmdEval, &section[2..slen - 1])
+                }
+                LLCPR::Grouped => (SectionType::Grouped, &section[1..slen - 1]),
+                LLCPR::NormalSpace => (SectionType::NormalSpace, &section[..]),
+                _ => (SectionType::Normal, &section[..]),
+            };
+            use crate::ast::ASTNode::*;
+            Ok(match stype {
+                SectionType::CmdEval => {
+                    let first_space = section.iter().position(|&x| x.is_space());
+                    CmdEval(
+                        std::str::from_utf8(
+                            &section2u8v(&section[0..first_space.unwrap_or_else(|| section.len())]),
+                        )?
+                        .to_owned(),
+                        run_parser(first_space.map(|x| &section[x + 1..]).unwrap_or(&[]), escc, pass_escc, recid + 1)?,
+                    )
+                }
+                SectionType::Grouped => Grouped(
+                    true,
+                    run_parser(&section, escc, pass_escc, recid + 1)?,
+                ),
+                SectionType::Normal | SectionType::NormalSpace => Constant(
+                    stype == SectionType::Normal,
+                    section2u8v(&section[..]),
+                ),
+            })
+        })
+        .collect::<ParserResult>();
+
+    let parse_timing = now.elapsed().as_micros();
+    if parse_timing != 0 {
+        println!("run_parser[{}] {} μs", recid, parse_timing);
+    }
+
+    if nesting != 0 {
+        panic!("crulz ERROR: unexpected EOF");
+    }
+
+    ret
+}
+
+pub fn file2ast(filename: String, escc: u8, pass_escc: bool) -> ParserResult {
+    run_parser(
+        &crate::lexer::lex(
+            readfilez::read_from_file(std::fs::File::open(filename))?.get_slice(),
+            escc,
+        ),
+        escc,
+        pass_escc,
+        0,
+    )
+}
+extern crate boolinator;
+
+pub struct ClassifyIT<'a, TT: 'a, TC, FnT, IT>
+where
+    TC: Copy + Default + std::cmp::PartialEq,
+    FnT: FnMut(&TT) -> TC,
+    IT: Iterator<Item = TT>,
+{
+    inner: &'a mut IT,
+    fnx: FnT,
+    edge: (Option<TC>, Option<TT>),
+}
+
+impl<'a, TT: 'a, TC, FnT, IT> ClassifyIT<'a, TT, TC, FnT, IT>
+where
+    TC: Copy + Default + std::cmp::PartialEq,
+    FnT: FnMut(&TT) -> TC,
+    IT: Iterator<Item = TT>,
+{
+    pub fn new(inner: &'a mut IT, fnx: FnT) -> Self {
+        Self {
+            inner,
+            fnx,
+            edge: (Some(Default::default()), None),
+        }
+    }
+}
+
+impl<'a, TT: 'a, TC, FnT, IT> std::iter::Iterator for ClassifyIT<'a, TT, TC, FnT, IT>
+where
+    TC: Copy + Default + std::cmp::PartialEq,
+    FnT: FnMut(&TT) -> TC,
+    IT: Iterator<Item = TT>,
+{
+    type Item = (TC, Vec<TT>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut ccl = self.edge.0?;
+        let mut last = Vec::<TT>::new();
+
+        if let Some(x) = self.edge.1.take() {
+            last.push(x);
+        }
+        let fnx = &mut self.fnx;
+        for (new_ccl, x) in self.inner.map(|x| {
+            let fnr = fnx(&x);
+            (fnr, x)
+        }) {
+            if new_ccl != ccl {
+                if last.is_empty() {
+                    ccl = new_ccl;
+                    last.push(x);
+                } else {
+                    self.edge = (Some(new_ccl), Some(x));
+                    return Some((ccl, last));
+                }
+            } else {
+                last.push(x);
+            }
+        }
+
+        // we reached the end of the inner iterator
+        self.edge = (None, None);
+        if last.is_empty() {
+            None
+        } else {
+            Some((ccl, last))
+        }
+    }
+}
+
+pub trait Classify<'a, TT: 'a>
+where
+    Self: Sized + Iterator<Item = TT> + 'a,
+{
+    fn classify<TC, FnT>(&'a mut self, fnx: FnT) -> ClassifyIT<'a, TT, TC, FnT, Self>
+    where
+        TC: Copy + Default + std::cmp::PartialEq,
+        FnT: FnMut(&TT) -> TC;
+}
+
+impl<'a, IT, TT: 'a> Classify<'a, TT> for IT
+where
+    Self: Sized + Iterator<Item = TT> + 'a,
+{
+    fn classify<TC, FnT>(&'a mut self, fnx: FnT) -> ClassifyIT<'a, TT, TC, FnT, Self>
+    where
+        TC: Copy + Default + std::cmp::PartialEq,
+        FnT: FnMut(&TT) -> TC,
+    {
+        ClassifyIT::new(self, fnx)
+    }
+}
+
+pub fn classify<'a, Input, FnT, TT: 'a, TC, TRes>(input: Input, fnx: FnT) -> TRes
+where
+    Input: IntoIterator<Item = TT>,
+    FnT: FnMut(&TT) -> TC,
+    TC: Copy + Default + PartialEq,
+    TRes: std::iter::FromIterator<(TC, Vec<TT>)>,
+{
+    input.into_iter().classify(fnx).collect()
+}
+
+pub fn classify_as_vec<'a, Input, FnT, TT: 'a, TC>(input: Input, fnx: FnT) -> Vec<(TC, Vec<TT>)>
+where
+    Input: IntoIterator<Item = TT>,
+    FnT: FnMut(&TT) -> TC,
+    TC: Copy + Default + PartialEq,
+{
+    classify(input, fnx)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    extern crate test;
+
+    #[test]
+    fn test_clsf0() {
+        let input: Vec<u8> = vec![0, 0, 1, 1, 2, 2, 3, 0, 5, 5, 5];
+        let res: Vec<_> = classify(input, |&curc| curc);
+        assert_eq!(
+            res,
+            vec![
+                (0, vec![0, 0]),
+                (1, vec![1, 1]),
+                (2, vec![2, 2]),
+                (3, vec![3]),
+                (0, vec![0]),
+                (5, vec![5, 5, 5]),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_clsf1() {
+        let input: Vec<Option<u8>> = vec![
+            Some(0),
+            Some(1),
+            Some(5),
+            Some(5),
+            None,
+            None,
+            Some(0),
+            None,
+        ];
+        let res: Vec<_> = classify(input, |curo| curo.is_some());
+        assert_eq!(
+            res,
+            vec![
+                (true, vec![Some(0), Some(1), Some(5), Some(5)]),
+                (false, vec![None, None]),
+                (true, vec![Some(0)]),
+                (false, vec![None]),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_clsf2() {
+        let input: Vec<Option<Vec<u8>>> = vec![
+            Some(vec![0, 0, 1]),
+            Some(vec![0, 1]),
+            None,
+            None,
+            Some(vec![2]),
+            None,
+        ];
+        let res: Vec<_> = classify(input, |curo| curo.is_some());
+        assert_eq!(
+            res,
+            vec![
+                (true, vec![Some(vec![0, 0, 1]), Some(vec![0, 1])]),
+                (false, vec![None, None]),
+                (true, vec![Some(vec![2])]),
+                (false, vec![None]),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_clsfit2() {
+        let input: Vec<Option<Vec<u8>>> = vec![
+            Some(vec![0, 0, 1]),
+            Some(vec![0, 1]),
+            None,
+            None,
+            Some(vec![2]),
+            None,
+        ];
+        let res =
+            ClassifyIT::new(&mut input.into_iter(), |curo| curo.is_some()).collect::<Vec<_>>();
+        assert_eq!(
+            res,
+            vec![
+                (true, vec![Some(vec![0, 0, 1]), Some(vec![0, 1])]),
+                (false, vec![None, None]),
+                (true, vec![Some(vec![2])]),
+                (false, vec![None]),
+            ]
+        );
+    }
+
+    #[bench]
+    fn bench_clsfit2(b: &mut test::Bencher) {
+        let input: Vec<Option<Vec<u8>>> = vec![
+            Some(vec![0, 0, 1]),
+            Some(vec![0, 1]),
+            None,
+            None,
+            Some(vec![2]),
+            None,
+        ];
+        b.iter(|| classify_as_vec(input.clone(), |curo| curo.is_some()));
+    }
+}
