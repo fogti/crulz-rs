@@ -1,6 +1,6 @@
 use crate::ast::{ASTNode, VAN};
-use crate::sharpen::classify_as_vec;
 use rayon::prelude::*;
+use sharpen::classify_as_vec;
 
 // do NOT "use ASTNode::*;" here, because sometimes we want to "use ASTNodeClass::*;"
 

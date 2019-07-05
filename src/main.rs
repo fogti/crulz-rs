@@ -4,6 +4,7 @@ extern crate clap;
 extern crate failure;
 extern crate rayon;
 extern crate readfilez;
+extern crate sharpen;
 
 #[macro_use]
 mod ast;
@@ -11,7 +12,6 @@ mod interp;
 mod lexer;
 mod mangle_ast;
 mod parser;
-mod sharpen;
 
 use std::{io, io::Write};
 

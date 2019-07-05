@@ -17,7 +17,7 @@ struct EvalContext {
 
 fn args2unspaced(args: VAN) -> VAN {
     use rayon::prelude::*;
-    crate::sharpen::classify_as_vec(args, |i| match i {
+    sharpen::classify_as_vec(args, |i| match i {
         ASTNode::NullNode | ASTNode::Constant(false, _) => false,
         _ => true,
     })

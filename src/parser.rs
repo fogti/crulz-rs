@@ -1,6 +1,7 @@
-use crate::sharpen::*;
-
+use crate::ast::VAN;
 use crate::lexer::LowerLexerToken;
+use sharpen::*;
+
 type LLT = LowerLexerToken;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -24,8 +25,6 @@ pub enum SectionType {
     Grouped,
     CmdEval,
 }
-
-use crate::ast::VAN;
 
 type ParserResult = Result<VAN, failure::Error>;
 
