@@ -42,8 +42,9 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
     use std::time::Instant;
 
     let now = Instant::now();
-    let mut derefed = input.into_iter().map(|i| *i);
-    let ret = derefed
+    let ret = input
+        .into_iter()
+        .copied()
         .classify(|i| {
             if is_escaped {
                 is_escaped = false;
@@ -95,35 +96,37 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
                     _ => {}
                 }
             }
-            if clret == LLCPR::Normal && i.is_space() {
-                return (flipp, LLCPR::NormalSpace);
-            }
-            return (flipp, clret);
-        })
-        .map(|((_, d), section)| match d {
-            LLCPR::Escaped if !pass_escc && section.len() == 2 => {
-                (SectionType::Normal, vec![section[1]])
-            }
-            _ => {
-                assert!(!section.is_empty());
-                if section[0].is_escape()
-                    && section.len() > 2
-                    && section[1] == LowerLexerToken::Paren(true)
-                    && *section.last().unwrap() == LowerLexerToken::Paren(false)
-                {
-                    (SectionType::CmdEval, section[2..section.len() - 1].to_vec())
-                } else if d == LLCPR::Grouped {
-                    (SectionType::Grouped, section[1..section.len() - 1].to_vec())
+            (
+                flipp,
+                if clret == LLCPR::Normal && i.is_space() {
+                    LLCPR::NormalSpace
                 } else {
-                    (if d == LLCPR::NormalSpace { SectionType::NormalSpace } else { SectionType::Normal }, section)
-                }
-            }
+                    clret
+                },
+            )
         })
-        .map(|(stype, section)| {
+        .map(|((_, d), section)| {
+            assert!(!section.is_empty());
+            let slen = section.len();
+            let (stype, section) = match d {
+                LLCPR::Escaped if !pass_escc && slen == 2 => {
+                    (SectionType::Normal, std::slice::from_ref(&section[1]))
+                }
+                LLCPR::Escaped
+                    if slen > 2
+                        && section[1] == LowerLexerToken::Paren(true)
+                        && *section.last().unwrap() == LowerLexerToken::Paren(false) =>
+                {
+                    if slen == 3 {
+                        panic!("crulz: ERROR: got empty eval stmt");
+                    }
+                    (SectionType::CmdEval, &section[2..slen - 1])
+                }
+                LLCPR::Grouped => (SectionType::Grouped, &section[1..slen - 1]),
+                LLCPR::NormalSpace => (SectionType::NormalSpace, &section[..]),
+                _ => (SectionType::Normal, &section[..]),
+            };
             use crate::ast::ASTNode::*;
-            if section.is_empty() && stype == SectionType::CmdEval {
-                panic!("crulz: ERROR: got empty eval stmt");
-            }
             match stype {
                 SectionType::CmdEval => {
                     let first_space = section.iter().position(|&x| x.is_space());
@@ -145,21 +148,20 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
                     true,
                     run_parser(&section, escc, pass_escc).expect("sub-parser failed"),
                 ),
-                SectionType::Normal => Constant(
-                    true,
-                    section.into_iter().map(std::convert::Into::<u8>::into).collect(),
-                ),
-                SectionType::NormalSpace => Constant(
-                    false,
-                    section.into_iter().map(std::convert::Into::<u8>::into).collect(),
+                SectionType::Normal | SectionType::NormalSpace => Constant(
+                    stype == SectionType::Normal,
+                    section
+                        .into_iter()
+                        .map(std::convert::Into::<u8>::into)
+                        .collect(),
                 ),
             }
         })
         .collect::<Vec<_>>();
 
-    let parse_timing = now.elapsed().as_nanos();
-    if parse_timing > 1000 {
-        println!("run_parser {} ns", parse_timing);
+    let parse_timing = now.elapsed().as_micros();
+    if parse_timing != 0 {
+        println!("run_parser {} μs", parse_timing);
     }
 
     if nesting != 0 {
