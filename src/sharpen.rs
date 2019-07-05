@@ -1,41 +1,5 @@
 extern crate boolinator;
 
-pub struct TwoVec<T> {
-    pub parts: Vec<Vec<T>>,
-    last: Vec<T>,
-}
-
-impl<T> TwoVec<T> {
-    fn take<TT>(mut x: &mut Vec<TT>) -> Vec<TT> {
-        std::mem::replace(&mut x, vec![])
-    }
-
-    pub fn finish(&mut self) -> Vec<Vec<T>> {
-        self.up_push();
-        Self::take(&mut self.parts)
-    }
-
-    pub fn up_push(&mut self) {
-        let tmp = Self::take(&mut self.last);
-        if !tmp.is_empty() {
-            self.parts.push(tmp);
-        }
-    }
-
-    pub fn push(&mut self, x: T) {
-        self.last.push(x);
-    }
-}
-
-impl<T> Default for TwoVec<T> {
-    fn default() -> Self {
-        Self {
-            parts: vec![],
-            last: vec![],
-        }
-    }
-}
-
 pub struct ClassifyIT<'a, TT: 'a, TC, FnT, IT>
 where
     TC: Copy + Default + std::cmp::PartialEq,
