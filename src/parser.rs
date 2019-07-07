@@ -152,7 +152,7 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
 pub fn file2ast(filename: String, escc: u8, pass_escc: bool) -> ParserResult {
     let ret = run_parser(
         &crate::lexer::lex(
-            readfilez::read_from_file(std::fs::File::open(filename))?.get_slice(),
+            readfilez::read_from_file(std::fs::File::open(filename))?.as_slice(),
             escc,
         ),
         escc,
