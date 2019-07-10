@@ -7,6 +7,7 @@ exclude = ["docs/bench_results**.txt","*.sh"]
 repository = "https://github.com/zserik/crulz-rs"
 
 [dependencies]
+ansi_term = "0.11"
 clap = "~2.33"
 failure = "0.1.5"
 hashbrown = "0.5.0"

@@ -1,5 +1,6 @@
 #![cfg_attr(test, feature(test))]
 
+extern crate ansi_term;
 extern crate clap;
 extern crate failure;
 extern crate rayon;
@@ -13,11 +14,16 @@ mod lexer;
 mod mangle_ast;
 mod parser;
 
+use ansi_term::{Colour, Style};
 use std::{io, io::Write};
 
 pub fn errmsg(s: &str) {
-    eprintln!("crulz: ERROR: {}", s);
+    eprintln!("crulz: {}: {}", Colour::Red.bold().paint("ERROR"), s);
     std::process::exit(1);
+}
+
+pub fn notemsg(cat: &str, s: &str) {
+    eprintln!("crulz: {}: {}", Style::new().bold().paint(cat), s);
 }
 
 macro_rules! timing_of {
@@ -27,7 +33,7 @@ macro_rules! timing_of {
         if $print_timings {
             let elp = now.elapsed().as_micros();
             if elp > 9 {
-                eprintln!("crulz: timings: {} {} μs", stringify!($name), elp);
+                notemsg("timings", &format!("{} {} μs", stringify!($name), elp));
             }
         }
         ret
@@ -101,7 +107,7 @@ fn main() {
     );
 
     if vblvl > 1 {
-        eprintln!("crulz: AST before evaluation:");
+        notemsg("AST before evaluation", "");
         eprintln!("{:#?}", &trs);
         eprintln!("----");
     }
@@ -113,7 +119,7 @@ fn main() {
     );
 
     if vblvl > 0 {
-        eprintln!("crulz: AST after evaluation:");
+        notemsg("AST after evaluation", "");
         eprintln!("{:#?}", &trs);
         eprintln!("----");
     }
