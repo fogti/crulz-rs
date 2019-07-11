@@ -1,8 +1,8 @@
 use crate::ast::VAN;
-use crate::lexer::LowerLexerToken;
+use crate::lexer::{LowerLexerToken, LexerToken};
 use sharpen::*;
 
-type LLT = LowerLexerToken;
+type LT = LexerToken;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum LLCPR {
@@ -21,11 +21,11 @@ impl std::default::Default for LLCPR {
 
 type ParserResult = Result<VAN, failure::Error>;
 
-fn section2u8v(input: &[LLT]) -> Vec<u8> {
-    input.iter().map(std::convert::Into::<u8>::into).collect()
+fn section2u8v(input: &[LT]) -> Vec<u8> {
+    input.iter().map(|i| std::convert::Into::<u8>::into(i.llt)).collect()
 }
 
-fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
+fn run_parser(input: Vec<LT>, escc: u8, pass_escc: bool) -> ParserResult {
     // we should be able to parse non-utf8 input,
     // as long as the parts starting with ESCC '(' ( and ending with ')')
     // are valid utf8
@@ -37,18 +37,18 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
 
     let ret = input
         .into_iter()
-        .copied()
         .classify(|i| {
+            let j = i.llt;
             if is_escaped {
                 is_escaped = false;
-                match i {
+                match j {
                     LowerLexerToken::Paren(true) => {
                         // we can't do 'nesting += 1;' here,
                         // because we want '\(...)' in one blob
                     }
                     LowerLexerToken::Paren(false) => {
                         // '('
-                        panic!("crulz: ERROR: got dangerous '\\)'");
+                        crate::errmsg(&format!("got dangerous '\\)' at {}", i.pos));
                     }
                     _ => {
                         nesting = 0;
@@ -59,7 +59,7 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
                 }
             } else if nesting == 0 {
                 clret = LLCPR::Normal;
-                match i {
+                match j {
                     LowerLexerToken::Escape(_) => {
                         clret = LLCPR::Escaped;
                         is_escaped = true;
@@ -69,7 +69,7 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
                     }
                     LowerLexerToken::Paren(false) => {
                         // '('
-                        panic!("crulz: ERROR: unexpected unbalanced ')'");
+                        crate::errmsg(&format!("unexpected unbalanced ')' at {}", i.pos));
                     }
                     _ => {}
                 }
@@ -79,7 +79,7 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
                 }
             } else {
                 // grouped
-                match i {
+                match j {
                     LowerLexerToken::Paren(true) => {
                         nesting += 1;
                     }
@@ -107,8 +107,8 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
                 }
                 LLCPR::Escaped
                     if slen > 2
-                        && section[1] == LowerLexerToken::Paren(true)
-                        && *section.last().unwrap() == LowerLexerToken::Paren(false) =>
+                        && section[1].llt == LowerLexerToken::Paren(true)
+                        && section.last().unwrap().llt == LowerLexerToken::Paren(false) =>
                 {
                     if slen == 3 {
                         panic!("crulz: ERROR: got empty eval stmt");
@@ -121,20 +121,20 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
             use crate::ast::ASTNode::*;
             Ok(match stype {
                 LLCPR::CmdEval => {
-                    let first_space = section.iter().position(|&x| x.is_space());
+                    let first_space = section.iter().position(|x| x.is_space());
                     CmdEval(
                         std::str::from_utf8(&section2u8v(
                             &section[0..first_space.unwrap_or_else(|| section.len())],
                         ))?
                         .to_owned(),
                         run_parser(
-                            first_space.map(|x| &section[x + 1..]).unwrap_or(&[]),
+                            first_space.map(|x| section[x + 1..].to_vec()).unwrap_or(Vec::new()),
                             escc,
                             pass_escc,
                         )?,
                     )
                 }
-                LLCPR::Grouped => Grouped(true, run_parser(&section, escc, pass_escc)?),
+                LLCPR::Grouped => Grouped(true, run_parser(section.to_vec(), escc, pass_escc)?),
                 LLCPR::Normal | LLCPR::NormalSpace | LLCPR::Escaped => {
                     Constant(stype != LLCPR::NormalSpace, section2u8v(&section[..]))
                 }
@@ -143,7 +143,7 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
         .collect::<ParserResult>();
 
     if nesting != 0 {
-        panic!("crulz ERROR: unexpected EOF");
+        crate::errmsg("unexpected EOF");
     }
 
     ret
@@ -151,7 +151,7 @@ fn run_parser(input: &[LLT], escc: u8, pass_escc: bool) -> ParserResult {
 
 pub fn file2ast(filename: String, escc: u8, pass_escc: bool) -> ParserResult {
     let ret = run_parser(
-        &crate::lexer::lex(
+        crate::lexer::lex(
             readfilez::read_from_file(std::fs::File::open(filename))?.as_slice(),
             escc,
         ),
