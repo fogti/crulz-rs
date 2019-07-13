@@ -1,2 +1,3 @@
-\(def h1 1 <h1>\(une $0)</h1>)\(une
-)\(h1 (Hallo?))
+\(suppress
+  \(def h1 1 <h1>$0</h1>)
+)\(h1 {Hallo? })

@@ -1,15 +1,20 @@
-#[derive(Clone, Debug, PartialEq)]
+use serde::{Deserialize, Serialize};
+
+pub type Atom = crate::crulst::CrulzAtom;
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ASTNode {
     NullNode,
 
     /// Constant: is_non_space, data
-    Constant(bool, Vec<u8>),
+    Constant(bool, Atom),
 
     /// Grouped: is_strict, elems
     /// loose groups are created while replacing patterns
     Grouped(bool, Vec<ASTNode>),
 
-    CmdEval(String, Vec<ASTNode>),
+    /// CmdEval: cmd, args
+    CmdEval(Vec<ASTNode>, Vec<ASTNode>),
 }
 
 use ASTNode::*;
@@ -23,9 +28,9 @@ impl std::default::Default for ASTNode {
 }
 
 impl ASTNode {
-    pub fn as_constant(&self) -> Option<&Vec<u8>> {
+    pub fn as_constant(&self) -> Option<&Atom> {
         match &self {
-            Constant(_, x) => Some(x),
+            Constant(_, ref x) => Some(x),
             _ => None,
         }
     }

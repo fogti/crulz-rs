@@ -1,20 +1,18 @@
 #![cfg_attr(test, feature(test))]
 
-extern crate ansi_term;
-extern crate clap;
-extern crate failure;
-extern crate rayon;
-extern crate readfilez;
-extern crate sharpen;
-
 #[macro_use]
+#[allow(dead_code, clippy::unreadable_literal)]
+mod crulst {
+    include!(concat!(env!("OUT_DIR"), "/crulst_atom.rs"));
+}
+
 mod ast;
 mod interp;
-mod lexer;
 mod mangle_ast;
 mod parser;
 
 use ansi_term::{Colour, Style};
+use hashbrown::HashMap;
 use std::{io, io::Write};
 
 pub fn errmsg(s: &str) {
@@ -86,24 +84,44 @@ fn main() {
                 .long("quiet")
                 .help("if set, suppress output of evaluated data"),
         )
+        .arg(
+            Arg::with_name("map-to-compilate")
+                .short("m")
+                .long("map-to-compilate")
+                .multiple(true)
+                .takes_value(true)
+                .help("if set, map includes of $1 to $2"),
+        )
+        .arg(
+            Arg::with_name("compile-output")
+                .short("c")
+                .long("compile-output")
+                .takes_value(true)
+                .help("if set, writes the processed output including defines to the given output file"),
+        )
         .get_matches();
 
-    let escc = matches.value_of("escc").unwrap_or("\\").as_bytes();
-    if escc.len() != 1 {
-        errmsg("invalid escc argument");
-    }
-    let escc = escc[0] as u8;
+    let escc = matches.value_of("escc").unwrap_or("\\");
+    let escc = {
+        let mut chx = escc.chars();
+        let escc_aso = chx.next();
+        if escc_aso == None || chx.next() != None {
+            errmsg("invalid escc argument");
+        }
+        escc_aso.unwrap()
+    };
 
     let escc_pass = matches.is_present("pass-escc");
     let vblvl = matches.occurrences_of("v");
     let print_timings = matches.is_present("timings");
 
     let input_file = matches.value_of("INPUT").unwrap().to_owned();
+    let opts = parser::ParserOptions::new(escc, escc_pass);
 
     let mut trs = timing_of!(
         print_timings,
         parser::file2ast,
-        parser::file2ast(input_file, escc, escc_pass).expect("crulz: failed to parse input file")
+        parser::file2ast(&input_file, opts).expect("crulz: failed to parse input file")
     );
 
     if vblvl > 1 {
@@ -112,10 +130,26 @@ fn main() {
         eprintln!("----");
     }
 
+    let comp_map = matches
+        .values_of("map-to-compilate")
+        .map(|x| {
+            x.map(|y| {
+                let tmp: Vec<_> = y.split('=').take(2).collect();
+                (tmp[0], tmp[1])
+            })
+            .collect()
+        })
+        .unwrap_or_else(HashMap::new);
+
     timing_of!(
         print_timings,
         interp::eval,
-        interp::eval(&mut trs, escc, escc_pass)
+        interp::eval(
+            &mut trs,
+            opts,
+            &comp_map,
+            matches.value_of("compile-output")
+        )
     );
 
     if vblvl > 0 {
@@ -125,9 +159,7 @@ fn main() {
     }
 
     if !matches.is_present("quiet") {
-        let rsb = trs.to_u8v(escc);
-        io::stdout()
-            .write_all(&rsb)
-            .expect("unable to write reser-result");
+        print!("{}", trs.to_str(escc));
+        io::stdout().flush().expect("unable to flush result");
     }
 }

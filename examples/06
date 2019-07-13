@@ -1,2 +1,2 @@
-\(def nl 0 \(une (
-)))\(def a 0 a \(nl) b)\(a)
+\(def nl 0 {
+})\(def a 0 a \(nl) b)\(a)

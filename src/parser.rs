@@ -1,162 +1,283 @@
-use crate::ast::VAN;
-use crate::lexer::{LowerLexerToken, LexerToken};
-use sharpen::*;
+use crate::ast::{ASTNode, VAN};
 
-type LT = LexerToken;
+// === parser utils
+
+#[inline]
+fn get_offset_of(whole_buffer: &str, part: &str) -> usize {
+    // NOTE: use offset_from() once it's stable
+    part.as_ptr() as usize - whole_buffer.as_ptr() as usize
+}
+
+#[inline]
+fn str_slice_between<'a>(whole_buffer_start: &'a str, post_part: &'a str) -> &'a str {
+    &whole_buffer_start[..get_offset_of(whole_buffer_start, post_part)]
+}
+
+#[inline]
+fn is_scope_end(x: char) -> bool {
+    match x {
+        /* '(' */ ')' => true,
+        /* '{' */ '}' => true,
+        _ => false,
+    }
+}
+
+#[inline]
+fn astnode_is_space(x: &ASTNode) -> bool {
+    if let ASTNode::Constant(false, _) = x {
+        true
+    } else {
+        false
+    }
+}
+
+/// 1. part while f(x) == true, then 2. part
+#[inline]
+fn str_split_at_while(x: &str, mut f: impl FnMut(char) -> bool) -> (&str, &str) {
+    x.split_at(
+        x.chars()
+            .take_while(|i| f(*i))
+            .map(|i| i.len_utf8())
+            .sum::<usize>(),
+    )
+}
+
+fn args2unspaced(args: VAN) -> VAN {
+    use crate::mangle_ast::MangleAST;
+    use itertools::Itertools;
+    args.into_iter()
+        .group_by(|i| match i {
+            ASTNode::NullNode | ASTNode::Constant(false, _) => false,
+            _ => true,
+        })
+        .into_iter()
+        .filter(|(d, _)| *d)
+        .map(|(_, i)| i.collect::<VAN>().lift_ast().simplify())
+        .collect()
+}
+
+// === parser options
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-enum LLCPR {
-    Normal,
-    NormalSpace,
-    Grouped,
-    Escaped,
-    CmdEval,
+pub struct ParserOptions {
+    escc: char,
+    pass_escc: bool,
 }
 
-impl std::default::Default for LLCPR {
-    fn default() -> Self {
-        LLCPR::Normal
+impl ParserOptions {
+    pub fn new(escc: char, pass_escc: bool) -> Self {
+        Self { escc, pass_escc }
     }
 }
 
-type ParserResult = Result<VAN, failure::Error>;
+// === parse trait
 
-fn section2u8v(input: &[LT]) -> Vec<u8> {
-    input.iter().map(|i| std::convert::Into::<u8>::into(i.llt)).collect()
+trait Parse: Sized {
+    /// # Return value
+    /// * `Ok(rest, parsed_obj)`
+    /// * `Err(offending_code, description)`
+    fn parse(data: &str, opts: ParserOptions) -> Result<(&str, Self), (&str, &'static str)>;
 }
 
-fn run_parser(input: Vec<LT>, escc: u8, pass_escc: bool) -> ParserResult {
-    // we should be able to parse non-utf8 input,
-    // as long as the parts starting with ESCC '(' ( and ending with ')')
-    // are valid utf8
+impl Parse for ASTNode {
+    fn parse(data: &str, opts: ParserOptions) -> Result<(&str, Self), (&str, &'static str)> {
+        let escc = opts.escc;
+        let mut iter = data.chars();
 
-    let mut is_escaped = false;
-    let mut flipp = false;
-    let mut clret = LLCPR::Normal;
-    let mut nesting: usize = 0;
+        let i = iter.next().ok_or_else(|| (data, "unexpected EOF"))?;
+        match i {
+            _ if i == escc => {
+                let i = iter.next().ok_or_else(|| (data, "unexpected EOF"))?;
+                Ok(if i == '(' {
+                    // got begin of cmdeval block
+                    let (rest, mut vanx) = VAN::parse(iter.as_str(), opts)?;
+                    if vanx.is_empty() {
+                        return Err((&data[..std::cmp::min(data.len(), 3)], "got empty eval stmt"));
+                    }
+                    let mut iter = rest.chars();
+                    if iter.next() != Some(')') {
+                        return Err((data, "unexpected EOF"));
+                    }
 
-    let ret = input
-        .into_iter()
-        .classify(|i| {
-            let j = i.llt;
-            if is_escaped {
-                is_escaped = false;
-                match j {
-                    LowerLexerToken::Paren(true) => {
-                        // we can't do 'nesting += 1;' here,
-                        // because we want '\(...)' in one blob
+                    // extract command
+                    assert!(!vanx.is_empty());
+                    let split_point = vanx
+                        .iter()
+                        .enumerate()
+                        .filter_map(|y| {
+                            if astnode_is_space(&y.1) {
+                                Some(y.0 + 1)
+                            } else {
+                                None
+                            }
+                        })
+                        .next()
+                        .unwrap_or(1);
+                    let van = vanx.split_off(split_point);
+                    let mut cmd = vanx;
+                    if cmd.last().map(astnode_is_space).unwrap() {
+                        cmd.pop();
                     }
-                    LowerLexerToken::Paren(false) => {
-                        // '('
-                        crate::errmsg(&format!("got dangerous '\\)' at {}", i.pos));
-                    }
-                    _ => {
-                        nesting = 0;
-                        clret = LLCPR::Normal;
-                        flipp ^= true;
-                        return (!flipp, LLCPR::Escaped);
-                    }
-                }
-            } else if nesting == 0 {
-                clret = LLCPR::Normal;
-                match j {
-                    LowerLexerToken::Escape(_) => {
-                        clret = LLCPR::Escaped;
-                        is_escaped = true;
-                    }
-                    LowerLexerToken::Paren(true) => {
-                        clret = LLCPR::Grouped;
-                    }
-                    LowerLexerToken::Paren(false) => {
-                        // '('
-                        crate::errmsg(&format!("unexpected unbalanced ')' at {}", i.pos));
-                    }
-                    _ => {}
-                }
-                if clret != LLCPR::Normal {
-                    nesting = 1;
-                    flipp ^= true;
-                }
-            } else {
-                // grouped
-                match j {
-                    LowerLexerToken::Paren(true) => {
-                        nesting += 1;
-                    }
-                    LowerLexerToken::Paren(false) => {
-                        nesting -= 1;
-                    }
-                    _ => {}
-                }
-            }
-            (
-                flipp,
-                if clret == LLCPR::Normal && i.is_space() {
-                    LLCPR::NormalSpace
+                    (iter.as_str(), ASTNode::CmdEval(cmd, args2unspaced(van)))
                 } else {
-                    clret
-                },
-            )
-        })
-        .map(|((_, d), section)| {
-            assert!(!section.is_empty());
-            let slen = section.len();
-            let (stype, section) = match d {
-                LLCPR::Escaped if !pass_escc && slen == 2 => {
-                    (LLCPR::Normal, std::slice::from_ref(&section[1]))
-                }
-                LLCPR::Escaped
-                    if slen > 2
-                        && section[1].llt == LowerLexerToken::Paren(true)
-                        && section.last().unwrap().llt == LowerLexerToken::Paren(false) =>
-                {
-                    if slen == 3 {
-                        panic!("crulz: ERROR: got empty eval stmt");
-                    }
-                    (LLCPR::CmdEval, &section[2..slen - 1])
-                }
-                LLCPR::Grouped => (d, &section[1..slen - 1]),
-                _ => (d, &section[..]),
-            };
-            use crate::ast::ASTNode::*;
-            Ok(match stype {
-                LLCPR::CmdEval => {
-                    let first_space = section.iter().position(|x| x.is_space());
-                    CmdEval(
-                        std::str::from_utf8(&section2u8v(
-                            &section[0..first_space.unwrap_or_else(|| section.len())],
-                        ))?
-                        .to_owned(),
-                        run_parser(
-                            first_space.map(|x| section[x + 1..].to_vec()).unwrap_or(Vec::new()),
-                            escc,
-                            pass_escc,
-                        )?,
+                    // escaped escape symbol or other escaped code: optional passthrough
+                    (
+                        iter.as_str(),
+                        ASTNode::Constant(
+                            true,
+                            if i == escc && !opts.pass_escc {
+                                let mut tmp = [0; 4];
+                                let tmp = escc.encode_utf8(&mut tmp);
+                                (*tmp).into()
+                            } else if is_scope_end(i) {
+                                return Err((
+                                    str_slice_between(data, iter.as_str()),
+                                    "dangerous escaped end-of-scope marker",
+                                ));
+                            } else {
+                                data.into()
+                            },
+                        ),
                     )
+                })
+            }
+            '(' => {
+                let (rest, van) = VAN::parse(iter.as_str(), opts)?;
+                let mut iter = rest.chars();
+                if iter.next() != Some(')') {
+                    return Err((data, "unexpected EOF"));
                 }
-                LLCPR::Grouped => Grouped(true, run_parser(section.to_vec(), escc, pass_escc)?),
-                LLCPR::Normal | LLCPR::NormalSpace | LLCPR::Escaped => {
-                    Constant(stype != LLCPR::NormalSpace, section2u8v(&section[..]))
+                Ok((iter.as_str(), ASTNode::Grouped(true, van)))
+            }
+            '{' => {
+                let (rest, van) = VAN::parse(iter.as_str(), opts)?;
+                let mut iter = rest.chars();
+                if iter.next() != Some('}') {
+                    return Err((data, "unexpected EOF"));
                 }
-            })
-        })
-        .collect::<ParserResult>();
-
-    if nesting != 0 {
-        crate::errmsg("unexpected EOF");
+                Ok((iter.as_str(), ASTNode::Grouped(false, van)))
+            }
+            _ if is_scope_end(i) => {
+                Err((
+                    str_slice_between(data, iter.as_str()),
+                    /* '(' */ "unexpected unbalanced end-of-scope marker",
+                ))
+            }
+            _ => {
+                let is_whitespace = i.is_whitespace();
+                let (cdat, rest) = str_split_at_while(data, |i| match i {
+                    '\\' | '(' | ')' | '{' | '}' => false,
+                    _ => i.is_whitespace() == is_whitespace,
+                });
+                Ok((rest, ASTNode::Constant(!is_whitespace, cdat.into())))
+            }
+        }
     }
-
-    ret
 }
 
-pub fn file2ast(filename: String, escc: u8, pass_escc: bool) -> ParserResult {
-    let ret = run_parser(
-        crate::lexer::lex(
-            readfilez::read_from_file(std::fs::File::open(filename))?.as_slice(),
-            escc,
-        ),
-        escc,
-        pass_escc,
-    );
-    ret
+impl Parse for VAN {
+    fn parse(mut data: &str, opts: ParserOptions) -> Result<(&str, Self), (&str, &'static str)> {
+        let mut ret = VAN::new();
+        while data.chars().next().map(is_scope_end) == Some(false) {
+            let (rest, node) = ASTNode::parse(data, opts)?;
+            ret.push(node);
+            data = rest;
+        }
+        Ok((data, ret))
+    }
+}
+
+// === main parser
+
+/// At top level, only parse things inside CmdEval's
+fn parse_toplevel(
+    mut data: &str,
+    opts: ParserOptions,
+) -> Result<(&str, VAN), (&str, &'static str)> {
+    let mut ret = VAN::new();
+    while !data.is_empty() {
+        let mut cstp_has_nws = false;
+        let (cstp, rest) = str_split_at_while(data, |i| {
+            cstp_has_nws |= !i.is_whitespace();
+            i != opts.escc
+        });
+        if !cstp.is_empty() {
+            ret.push(ASTNode::Constant(cstp_has_nws, cstp.into()));
+        }
+        data = if !rest.is_empty() {
+            let (rest, node) = ASTNode::parse(rest, opts)?;
+            ret.push(node);
+            rest
+        } else {
+            rest
+        };
+    }
+    Ok((data, ret))
+}
+
+pub fn file2ast(filename: &str, opts: ParserOptions) -> Result<VAN, anyhow::Error> {
+    use anyhow::Context;
+
+    let fh = readfilez::read_from_file(std::fs::File::open(filename))
+        .with_context(|| format!("unable to read file '{}'", filename))?;
+    let input = std::str::from_utf8(fh.as_slice())
+        .with_context(|| format!("file '{}' contains non-UTF-8 data", filename))?;
+
+    match parse_toplevel(input, opts) {
+        Ok((rest, van)) => {
+            if !rest.is_empty() {
+                crate::errmsg("unexpected EOF (more closing parens as opening parens)");
+            }
+            Ok(van)
+        }
+        Err((offending, descr)) => {
+            use codespan_reporting::{
+                diagnostic::{Diagnostic, Label},
+                term,
+            };
+            use std::{convert::TryFrom, str::FromStr};
+
+            let writer = term::termcolor::StandardStream::stderr(
+                term::ColorArg::from_str("auto").unwrap().into(),
+            );
+            let config = term::Config::default();
+            let mut files = codespan::Files::new();
+            let fileid = files.add(filename, input);
+            let start_pos = u32::try_from(get_offset_of(input, offending)).unwrap();
+            let offending_len = u32::try_from(offending.len()).unwrap();
+
+            term::emit(
+                &mut writer.lock(),
+                &config,
+                &files,
+                &Diagnostic::new_error(
+                    descr.to_string(),
+                    Label::new(fileid, start_pos..(start_pos + offending_len), ""),
+                ),
+            )
+            .unwrap();
+            crate::errmsg(descr);
+            Ok(Vec::new())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_args2unspaced() {
+        use ASTNode::*;
+        assert_eq!(
+            args2unspaced(vec![
+                Constant(true, "a".into()),
+                Constant(false, "a".into()),
+                Constant(true, "a".into()),
+                Constant(true, "a".into()),
+                Constant(false, "a".into())
+            ]),
+            vec![Constant(true, "a".into()), Constant(true, "aa".into())]
+        );
+    }
 }
