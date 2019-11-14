@@ -4,8 +4,9 @@ cd "$(dirname "$0")"
 cargo build --release || exit $?
 echo
 
-for i in examples/* src/*; do
+for i in examples/*; do
   echo "$i"
+  cat "$i"
   target/release/crulz "$@" "$i"
   #time target/release/crulz "$@" "$i"
   echo

@@ -1,19 +1,16 @@
-use crate::ast::{ASTNode, VAN};
+use crate::ast::{ASTNode, CmdEvalArgs, GroupType, VAN};
 
 // === parser utils
 
-#[inline]
 fn get_offset_of(whole_buffer: &str, part: &str) -> usize {
     // NOTE: use offset_from() once it's stable
     part.as_ptr() as usize - whole_buffer.as_ptr() as usize
 }
 
-#[inline]
 fn str_slice_between<'a>(whole_buffer_start: &'a str, post_part: &'a str) -> &'a str {
     &whole_buffer_start[..get_offset_of(whole_buffer_start, post_part)]
 }
 
-#[inline]
 fn is_scope_end(x: char) -> bool {
     match x {
         /* '(' */ ')' => true,
@@ -22,17 +19,14 @@ fn is_scope_end(x: char) -> bool {
     }
 }
 
-#[inline]
 fn astnode_is_space(x: &ASTNode) -> bool {
-    if let ASTNode::Constant(false, _) = x {
-        true
-    } else {
-        false
+    match x {
+        ASTNode::NullNode | ASTNode::Constant(false, _) => true,
+        _ => false,
     }
 }
 
 /// 1. part while f(x) == true, then 2. part
-#[inline]
 fn str_split_at_while(x: &str, mut f: impl FnMut(char) -> bool) -> (&str, &str) {
     x.split_at(
         x.chars()
@@ -42,16 +36,13 @@ fn str_split_at_while(x: &str, mut f: impl FnMut(char) -> bool) -> (&str, &str) 
     )
 }
 
-fn args2unspaced(args: VAN) -> VAN {
+pub(crate) fn args2unspaced(args: VAN) -> CmdEvalArgs {
     use crate::mangle_ast::MangleAST;
     use itertools::Itertools;
     args.into_iter()
-        .group_by(|i| match i {
-            ASTNode::NullNode | ASTNode::Constant(false, _) => false,
-            _ => true,
-        })
+        .group_by(astnode_is_space)
         .into_iter()
-        .filter(|(d, _)| *d)
+        .filter(|(d, _)| !*d)
         .map(|(_, i)| i.collect::<VAN>().lift_ast().simplify())
         .collect()
 }
@@ -65,6 +56,7 @@ pub struct ParserOptions {
 }
 
 impl ParserOptions {
+    #[inline]
     pub fn new(escc: char, pass_escc: bool) -> Self {
         Self { escc, pass_escc }
     }
@@ -125,17 +117,21 @@ impl Parse for ASTNode {
                         iter.as_str(),
                         ASTNode::Constant(
                             true,
-                            if i == escc && !opts.pass_escc {
-                                let mut tmp = [0; 4];
-                                let tmp = escc.encode_utf8(&mut tmp);
-                                (*tmp).into()
-                            } else if is_scope_end(i) {
-                                return Err((
-                                    str_slice_between(data, iter.as_str()),
-                                    "dangerous escaped end-of-scope marker",
-                                ));
-                            } else {
-                                data.into()
+                            match i {
+                                _ if i == escc && !opts.pass_escc => {
+                                    let mut tmp = [0; 4];
+                                    let tmp = escc.encode_utf8(&mut tmp);
+                                    (*tmp).into()
+                                }
+                                _ if is_scope_end(i) => {
+                                    return Err((
+                                        str_slice_between(data, iter.as_str()),
+                                        "dangerous escaped end-of-scope marker",
+                                    ))
+                                }
+                                '\n' => crulst_atom!(""),
+                                '$' => crulst_atom!("$"),
+                                _ => data.into(),
                             },
                         ),
                     )
@@ -145,28 +141,37 @@ impl Parse for ASTNode {
                 let (rest, van) = VAN::parse(iter.as_str(), opts)?;
                 let mut iter = rest.chars();
                 if iter.next() != Some(')') {
-                    return Err((data, "unexpected EOF"));
+                    return Err((rest, /* '(' */ "expected ')' instead"));
                 }
-                Ok((iter.as_str(), ASTNode::Grouped(true, van)))
+                Ok((iter.as_str(), ASTNode::Grouped(GroupType::Strict, van)))
             }
             '{' => {
                 let (rest, van) = VAN::parse(iter.as_str(), opts)?;
                 let mut iter = rest.chars();
                 if iter.next() != Some('}') {
-                    return Err((data, "unexpected EOF"));
+                    return Err((rest, /* '{' */ "expected '}' instead"));
                 }
-                Ok((iter.as_str(), ASTNode::Grouped(false, van)))
+                Ok((iter.as_str(), ASTNode::Grouped(GroupType::Loose, van)))
             }
-            _ if is_scope_end(i) => {
-                Err((
-                    str_slice_between(data, iter.as_str()),
-                    /* '(' */ "unexpected unbalanced end-of-scope marker",
+            _ if is_scope_end(i) => Err((
+                str_slice_between(data, iter.as_str()),
+                "unexpected unbalanced end-of-scope marker",
+            )),
+            '$' => {
+                let (cdat, rest) = str_split_at_while(iter.as_str(), |i| i == '$');
+                let (idxs, rest) = str_split_at_while(rest, |i| i.is_digit(10));
+                Ok((
+                    rest,
+                    ASTNode::Argument {
+                        indirection: cdat.len(),
+                        index: idxs.parse().ok(),
+                    },
                 ))
             }
             _ => {
                 let is_whitespace = i.is_whitespace();
                 let (cdat, rest) = str_split_at_while(data, |i| match i {
-                    '\\' | '(' | ')' | '{' | '}' => false,
+                    '\\' | '$' | '(' | ')' | '{' | '}' => false,
                     _ => i.is_whitespace() == is_whitespace,
                 });
                 Ok((rest, ASTNode::Constant(!is_whitespace, cdat.into())))
@@ -223,12 +228,16 @@ pub fn file2ast(filename: &str, opts: ParserOptions) -> Result<VAN, anyhow::Erro
     let input = std::str::from_utf8(fh.as_slice())
         .with_context(|| format!("file '{}' contains non-UTF-8 data", filename))?;
 
+    use anyhow::anyhow;
     match parse_toplevel(input, opts) {
         Ok((rest, van)) => {
-            if !rest.is_empty() {
-                crate::errmsg("unexpected EOF (more closing parens as opening parens)");
+            if rest.is_empty() {
+                Ok(van)
+            } else {
+                Err(anyhow!(
+                    "unexpected EOF (more closing parens as opening parens)"
+                ))
             }
-            Ok(van)
         }
         Err((offending, descr)) => {
             use codespan_reporting::{
@@ -256,8 +265,7 @@ pub fn file2ast(filename: &str, opts: ParserOptions) -> Result<VAN, anyhow::Erro
                 ),
             )
             .unwrap();
-            crate::errmsg(descr);
-            Ok(Vec::new())
+            Err(anyhow!("{}", descr))
         }
     }
 }
@@ -277,7 +285,10 @@ mod tests {
                 Constant(true, "a".into()),
                 Constant(false, "a".into())
             ]),
-            vec![Constant(true, "a".into()), Constant(true, "aa".into())]
+            CmdEvalArgs(vec![
+                Constant(true, "a".into()),
+                Constant(true, "aa".into())
+            ])
         );
     }
 }

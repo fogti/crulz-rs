@@ -1,0 +1,96 @@
+\(suppress
+  \(def span 2 {<span class="$0">}$1</span>)
+  \(def root-sh 0 \(span root-sh #))
+  \(def br 0 {<br />})
+  \(def comment 1 \(span comment {# $0})\(br))
+  \(def tnbsp 0 &nbsp;&nbsp;)
+  \(def link 2 <li><a { } href="$0">$1</a></li>)
+)<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Raspi-Projekt</title>
+    <link rel="stylesheet" href="style.css" type="text/css" />
+  </head>
+  <body>
+    <h1>Raspi-Projekt</h1>
+    <p style="text-align: center;">Team Nr. 2: Erik Zscheile</p>
+
+    <h2>Aufbaubeschreibung</h2>
+    <p>
+      Der Raspi wurde mit dem Netzwerkswitch und dem Monitor verbunden.
+      USB-Maus+Tastatur wurde angeschlossen.
+      Nach längerer Suche und Nachforschung konnte die WLAN-Karte in den AP-Modus versetzt werden.
+      Allerdings funktionierte das Routing vom WLAN nach außen nicht bis zum Ende nicht
+      zuvverlässig.
+    </p>
+
+    <h2>Befehle, welche auf dem Raspi ausgef&uuml;hrt wurden</h2>
+    <code>
+\(span user-sh $) sudo -i\(br)
+\(comment 2.3.)
+\(root-sh) agt-get update\(br)
+\(root-sh) apt-get upgrade\(br)
+\(root-sh) apt-get install bridge-utils hostapd dnsmasq tor python-setuptools python-pip mc \\\(br)
+\(tnbsp)xfce4-screenshotter iw tcpdump dnsutils wireshark mlocate\(br)
+\(comment 2.4.)
+\(root-sh) pip install twython\(br)
+\(comment 2.5.)
+\(root-sh) \(span blticmd echo) net.ipv4.ip_forward=1 >> /etc/sysctl.conf\(br)
+\(root-sh) for i in tor dnsmasq hostapd; do \\\(br)
+\(tnbsp)systemctl enable "$i"; systemctl start "$i"; systemctl status "$i"; done\(br)
+\(root-sh) netstat -tulpen \(comment {dnsmasq @ 53; tor @ 9050})
+\(root-sh) \(span blticmd echo) \(span string {deb http://httpredir.debian.org/debian/ stretch main contrib non-free}) | \\\(br)
+\(tnbsp)sudo tee -a /etc/apt/sources.list\(br)
+\(root-sh) apt-get update\(br)
+\(root-sh) apt-get install firmware-realtek\(br)
+\(comment {Test, ob hostapd funktioniert -> funktioniert nicht, weil der Treiber streikt.})
+\(root-sh) iwconfig wlan0 mode master\(br)
+\(comment {Ergebnis:\(br)
+Error for wireless request "Set Mode" (8B06) :\(br)
+\(tnbsp)\(tnbsp)SET failed on device wlan0 : Invalid argument.})
+\(root-sh) iw list\(br)
+\(comment {Ergebnis:\(br)
+Wiphy phy0\(br)
+\(tnbsp)Supported interface modes:\(br)
+\(tnbsp)\(tnbsp)* AP})
+\(root-sh) rfkill list\(br)
+\(root-sh) iw dev wlan0 info\(br)
+\(root-sh) updatedb\(br)
+    </code>
+
+    <h2>Fotos zum Twitter-Test</h2>
+    <img src="tw.png" /><img src="tw2.png" /><img src="rpi_tw.png" />
+
+    <h2>Quellen</h2>
+    <ul>
+      \(link https://shkspr.mobi/blog/2018/08/easy-guide-to-building-mastodon-bots/ {Mastodon-bot tutorial (alternative to twitter)})
+      \(link https://developer.twitter.com/en/apps/16572547 ZelleBot)
+      \(link https://github.com/zserik/crulz-rs {Diese Datei wurde mittels crulz-rs generiert})
+      \(link https://trac.torproject.org/projects/tor/wiki/doc/TransparentProxy {transparent Tor Proxy})
+      <li><b>Python-Kram</b>
+        <ul>
+          \(link https://codingworld.io/project/schlaue-pflanze-mit-dem-display-verbinden {zu Nokia_LCD})
+          \(link https://github.com/adafruit/Adafruit_Python_GPIO/blob/master/Adafruit_GPIO/SPI.py Adafruit_GPIO.SPI)
+          \(link https://github.com/doceme/py-spidev/blob/master/spidev_module.c#L1298 {python-module spidev uses /dev/spidev*.*})
+        </ul>
+      </li>
+      <li><b>Links und Quellen für gescheiterten Versuch des WLAN-AP</b>
+        <ul>
+          \(link https://askubuntu.com/questions/472794/hostapd-error-nl80211-could-not-configure-driver-mode {hostapd error “nl80211: Could not configure driver mode”})
+          \(link https://wiki.gentoo.org/wiki/Wifi#Firmware {Wifi - Gentoo Wiki})
+          \(link https://blog.programster.org/debian-9-install-raeltek-firmware {Debian 9 - Install Realtek Firmware})
+          \(link https://forum.ubuntuusers.de/topic/frage-w-lan-probleme/#post-7252963 {rtlwifi-new Anleitung})
+          \(link https://wiki.ubuntuusers.de/WLAN/Karten/Realtek/ {Realtek - UbuntuUsers Wiki})
+          \(link https://github.com/HewlettPackard/wireless-tools/blob/c1074342112d8a4cdc44275b1bc15701aaf7f30b/wireless_tools/iwconfig.c#L1861 {iwconfig "SET failed on device"})
+          \(link https://github.com/HewlettPackard/wireless-tools/blob/c1074342112d8a4cdc44275b1bc15701aaf7f30b/wireless_tools/iwconfig.c#L1701 {iwconfig_entry for "mode"})
+          \(link https://github.com/HewlettPackard/wireless-tools/blob/c1074342112d8a4cdc44275b1bc15701aaf7f30b/wireless_tools/iwlib.c#L96 {iwlib.c iw_operation_mode})
+          \(link https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/net/wireless/wext-compat.c?id=e60c7744f8aa77bcbcb0b294596d6c87445d1200#n82 {linux-kernel cfg80211_wext_siwmode})
+          \(link https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/wireless.h?id=6f52b16c5b29b89d92c0e7236f4655dc8491ad70#n448 {linux-kernel uapi/linux/wireless.h (WEXT) IW_MODE_*})
+          \(link https://help.ubuntu.com/community/WifiDocs/MasterMode {MasterMode - Ubuntu community help wiki})
+        </ul>
+      </li>
+    </ul>
+  </body>
+</html>

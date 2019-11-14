@@ -1,0 +1,6 @@
+\(def-lazy _if1_ 2 $0)\
+\(def-lazy _if0_ 2 $1)\
+\(def-lazy if 3 \({_if$0_} $1 $2))\
+\(if 0 a {b\(if 1 c d)})
+\(def x 1 \(if $0 0 1))\
+\(if \(x 1) y z)
