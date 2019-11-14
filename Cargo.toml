@@ -1,5 +1,6 @@
 [package]
 name = "crulz"
+description = "a rust implementation of the 'crulz' macro language interpreter"
 version = "0.0.1"
 authors = ["Erik Zscheile <erik.zscheile@gmail.com>"]
 edition = "2018"
