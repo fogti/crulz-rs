@@ -120,7 +120,7 @@ dependencies = [
 
 [[package]]
 name = "crulz"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "ansi_term 0.12.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "anyhow 1.0.21 (registry+https://github.com/rust-lang/crates.io-index)",

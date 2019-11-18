@@ -284,12 +284,11 @@ impl MangleASTExt for VAN {
         // and then put all constants heaps into single constants
         self.into_iter()
             // 1. inline non-strict groups
-            .map(|i| match i {
+            .flat_map(|i| match i {
                 ASTNode::NullNode => vec![],
-                ASTNode::Grouped(gt, x) if gt != GroupType::Strict => x,
+                ASTNode::Grouped(gt, x) if gt != GroupType::Strict => x.compact_toplevel(),
                 _ => vec![i],
             })
-            .flatten()
             // 2. aggressive concat constant-after-constants
             .peekable()
             .batching(|it| {
