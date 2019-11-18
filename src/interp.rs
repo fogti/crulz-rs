@@ -5,6 +5,7 @@ use crate::{
 };
 #[cfg(feature = "compile")]
 use anyhow::Context;
+use cfg_if::cfg_if;
 use phf::phf_map;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::HashMap;
@@ -25,13 +26,13 @@ struct EvalContext<'a> {
 
 #[derive(Deserialize, Serialize)]
 struct CompilateData {
-    content: VAN,
+    content: ASTNode,
     defs: DefinesMap,
 }
 
 #[cfg(feature = "compile")]
 impl EvalContext<'_> {
-    fn load_from_compfile(&mut self, compf: &str) -> Result<VAN, anyhow::Error> {
+    fn load_from_compfile(&mut self, compf: &str) -> Result<ASTNode, anyhow::Error> {
         let fh = readfilez::read_from_file(std::fs::File::open(compf))
             .with_context(|| format!("Unable to open compfile '{}'", compf))?;
         let z = flate2::read::DeflateDecoder::new(fh.as_slice());
@@ -45,7 +46,7 @@ impl EvalContext<'_> {
     }
 
     #[cold]
-    fn save_to_compfile(self, compf: &str, content: VAN) -> Result<(), anyhow::Error> {
+    fn save_to_compfile(self, compf: &str, content: ASTNode) -> Result<(), anyhow::Error> {
         let EvalContext { defs, .. } = self;
         let fh = std::fs::File::create(compf)
             .with_context(|| format!("Failed to create compfile '{}'", compf))?;
@@ -162,10 +163,13 @@ define_bltins! {
             .parse()
             .expect("expected number as argc");
         let mut value = args[2..].to_vec().lift_ast();
-        value.eval(ctx);
-        ctx.defs
-            .insert(varname, (argc, value.simplify()));
-        Some(ASTNode::NullNode)
+        if value.eval(ctx) {
+            ctx.defs
+                .insert(varname, (argc, value.simplify()));
+            Some(ASTNode::NullNode)
+        } else {
+            None
+        }
     },
     "def-lazy" => (args, ctx) {
         if args.len() < 3 {
@@ -222,24 +226,25 @@ define_bltins! {
         }
     },
     "include" => (args | 1, ctx) {
+        fn direct_load_from_file(filename: &str, opts: ParserOptions) -> Result<ASTNode, anyhow::Error> {
+            crate::parser::file2ast(filename, opts)
+                .map(MangleAST::lift_ast)
+        }
         args[0].eval(ctx);
         let filename = conv_to_constant(&args[0])?;
         let filename: &str = &filename;
-        Some({
-            #[cfg(feature = "compile")]
-            {
-                match ctx.comp_map.get(filename) {
-                    None => crate::parser::file2ast(filename, ctx.opts),
-                    Some(compf) => ctx.load_from_compfile(compf),
+        Some(
+            { cfg_if! {
+                if #[cfg(feature = "compile")] {
+                    match ctx.comp_map.get(filename) {
+                        None => direct_load_from_file(filename, ctx.opts),
+                        Some(compf) => ctx.load_from_compfile(compf),
+                    }
+                } else {
+                    direct_load_from_file(filename, ctx.opts)
                 }
-            }
-            #[cfg(not(feature = "compile"))]
-            {
-                crate::parser::file2ast(filename, ctx.opts)
-            }
-        }
-            .expect("expected valid file")
-            .lift_ast())
+            }}.expect("expected valid file")
+        )
     },
     "pass" => (args) {
         Some(args.lift_ast())
@@ -390,15 +395,14 @@ pub fn eval(
         }
         cplx = new_cplx;
     }
-    #[cfg(feature = "compile")]
-    {
-        if let Some(comp_out) = comp_out {
-            ctx.save_to_compfile(comp_out, data.clone())
-                .expect("save failed");
+    cfg_if! {
+        if #[cfg(feature = "compile")] {
+            if let Some(comp_out) = comp_out {
+                ctx.save_to_compfile(comp_out, data.clone().lift_ast().simplify())
+                    .expect("save failed");
+            }
+        } else {
+            let _ = comp_out;
         }
-    }
-    #[cfg(not(feature = "compile"))]
-    {
-        let _ = comp_out;
     }
 }

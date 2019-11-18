@@ -1,5 +1,3 @@
-#![cfg_attr(test, feature(test))]
-
 pub use crulz::*;
 
 use std::{
@@ -134,36 +132,35 @@ fn main() {
         print_ast("AST before evaluation", &trs);
     }
 
-    #[cfg(feature = "compile")]
-    {
-        let comp_map = matches
-            .values_of("map-to-compilate")
-            .map(|x| {
-                x.map(|y| {
-                    let tmp: Vec<_> = y.split('=').take(2).collect();
-                    (tmp[0], tmp[1])
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "compile")] {
+            let comp_map = matches
+                .values_of("map-to-compilate")
+                .map(|x| {
+                    x.map(|y| {
+                        let tmp: Vec<_> = y.split('=').take(2).collect();
+                        (tmp[0], tmp[1])
+                    })
+                    .collect()
                 })
-                .collect()
-            })
-            .unwrap_or_else(HashMap::new);
-        timing_of!(
-            print_timings,
-            interp::eval,
-            interp::eval(
-                &mut trs,
-                opts,
-                &comp_map,
-                matches.value_of("compile-output")
-            )
-        );
-    }
-    #[cfg(not(feature = "compile"))]
-    {
-        timing_of!(
-            print_timings,
-            interp::eval,
-            interp::eval(&mut trs, opts, &HashMap::new(), None)
-        );
+                .unwrap_or_else(HashMap::new);
+            timing_of!(
+                print_timings,
+                interp::eval,
+                interp::eval(
+                    &mut trs,
+                    opts,
+                    &comp_map,
+                    matches.value_of("compile-output")
+                )
+            );
+        } else {
+            timing_of!(
+                print_timings,
+                interp::eval,
+                interp::eval(&mut trs, opts, &HashMap::new(), None)
+            );
+        }
     }
 
     if vblvl > 0 {

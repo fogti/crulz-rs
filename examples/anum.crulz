@@ -1,0 +1,6 @@
+\(def h2cnt 0 0)\
+\(def-lazy h2 1 \(fseq \(def h2cnt 0 \(add \(h2cnt) 1)) {\(h2cnt). $0}))\
+\(fseq
+  \(h2 {first heading}) {
+} \(h2 {second heading})
+)
