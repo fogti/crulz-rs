@@ -21,7 +21,10 @@ type CompilatesMap<'a> = HashMap<&'a str, &'a str>;
 struct EvalContext<'a> {
     defs: DefinesMap,
     opts: ParserOptions,
+    #[cfg(feature = "compile")]
     comp_map: &'a CompilatesMap<'a>,
+    #[cfg(not(feature = "compile"))]
+    comp_map: std::marker::PhantomData<&'a str>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -376,14 +379,17 @@ impl Eval for CmdEvalArgs {
 pub fn eval(
     data: &mut VAN,
     opts: ParserOptions,
-    comp_map: &CompilatesMap<'_>,
+    _comp_map: &CompilatesMap<'_>,
     comp_out: Option<&str>,
 ) {
     use crate::mangle_ast::MangleASTExt;
     let mut ctx = EvalContext {
         defs: HashMap::new(),
         opts,
-        comp_map,
+        #[cfg(feature = "compile")]
+        comp_map: _comp_map,
+        #[cfg(not(feature = "compile"))]
+        comp_map: std::marker::PhantomData,
     };
     let mut cplx = data.get_complexity();
     loop {
