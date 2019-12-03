@@ -7,7 +7,6 @@ use crate::{
 use anyhow::Context;
 use cfg_if::cfg_if;
 use phf::phf_map;
-use serde::{Deserialize, Serialize};
 use std::collections::hash_map::HashMap;
 
 enum BuiltInFn {
@@ -27,35 +26,28 @@ struct EvalContext<'a> {
     comp_map: std::marker::PhantomData<&'a str>,
 }
 
-#[derive(Deserialize, Serialize)]
-struct CompilateData {
-    content: ASTNode,
-    defs: DefinesMap,
-}
-
 #[cfg(feature = "compile")]
 impl EvalContext<'_> {
-    fn load_from_compfile(&mut self, compf: &str) -> Result<ASTNode, anyhow::Error> {
+    fn load_from_compfile(&mut self, compf: &str) -> Result<VAN, anyhow::Error> {
         let fh = readfilez::read_from_file(std::fs::File::open(compf))
             .with_context(|| format!("Unable to open compfile '{}'", compf))?;
-        let z = flate2::read::DeflateDecoder::new(fh.as_slice());
-        let CompilateData {
-            content,
-            defs: ins_defs,
-        } = bincode::deserialize_from(z)
+        let mut z = flate2::read::DeflateDecoder::new(fh.as_slice());
+        let content: VAN = bincode::deserialize_from(&mut z)
+            .with_context(|| format!("Unable to read compfile '{}'", compf))?;
+        let ins_defs: DefinesMap = bincode::deserialize_from(&mut z)
             .with_context(|| format!("Unable to read compfile '{}'", compf))?;
         self.defs.extend(ins_defs.into_iter());
         Ok(content)
     }
 
     #[cold]
-    fn save_to_compfile(self, compf: &str, content: ASTNode) -> Result<(), anyhow::Error> {
-        let EvalContext { defs, .. } = self;
+    fn save_to_compfile(&self, compf: &str, content: &VAN) -> Result<(), anyhow::Error> {
         let fh = std::fs::File::create(compf)
             .with_context(|| format!("Failed to create compfile '{}'", compf))?;
-        let z = flate2::write::DeflateEncoder::new(fh, flate2::Compression::default());
-        let codat = CompilateData { content, defs };
-        bincode::serialize_into(z, &codat)
+        let mut z = flate2::write::DeflateEncoder::new(fh, flate2::Compression::default());
+        bincode::serialize_into(&mut z, content)
+            .with_context(|| format!("Failed to write compfile '{}'", compf))?;
+        bincode::serialize_into(&mut z, &self.defs)
             .with_context(|| format!("Failed to write compfile '{}'", compf))?;
         Ok(())
     }
@@ -229,10 +221,6 @@ define_bltins! {
         }
     },
     "include" => (args | 1, ctx) {
-        fn direct_load_from_file(filename: &str, opts: ParserOptions) -> Result<ASTNode, anyhow::Error> {
-            crate::parser::file2ast(filename, opts)
-                .map(MangleAST::lift_ast)
-        }
         args[0].eval(ctx);
         let filename = conv_to_constant(&args[0])?;
         let filename: &str = &filename;
@@ -240,13 +228,13 @@ define_bltins! {
             { cfg_if! {
                 if #[cfg(feature = "compile")] {
                     match ctx.comp_map.get(filename) {
-                        None => direct_load_from_file(filename, ctx.opts),
+                        None => crate::parser::file2ast(filename, ctx.opts),
                         Some(compf) => ctx.load_from_compfile(compf),
                     }
                 } else {
-                    direct_load_from_file(filename, ctx.opts)
+                    crate::parser::file2ast(filename, ctx.opts)
                 }
-            }}.expect("expected valid file")
+            }}.expect("expected valid file").lift_ast()
         )
     },
     "pass" => (args) {
@@ -404,7 +392,7 @@ pub fn eval(
     cfg_if! {
         if #[cfg(feature = "compile")] {
             if let Some(comp_out) = comp_out {
-                ctx.save_to_compfile(comp_out, data.clone().lift_ast().simplify())
+                ctx.save_to_compfile(comp_out, &*data)
                     .expect("save failed");
             }
         } else {
