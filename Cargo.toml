@@ -6,7 +6,7 @@ authors = ["Erik Zscheile <erik.zscheile@gmail.com>"]
 edition = "2018"
 exclude = ["docs/bench_results*.txt","*.sh"]
 repository = "https://github.com/zserik/crulz-rs"
-license = "MIT OR Apache-2.0"
+license = "Apache-2.0"
 build = "build.rs"
 
 [dependencies]
