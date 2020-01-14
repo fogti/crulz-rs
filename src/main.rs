@@ -5,7 +5,7 @@ use std::{
     io::{self, Write},
 };
 
-fn print_ast(step: &str, trs: &crulz::ast::VAN) {
+fn print_ast(step: &str, trs: &[crulz::ast::ASTNode]) {
     eprintln!(
         "crulz: {}:\n{:#?}\n----",
         ansi_term::Style::new().bold().paint(step),

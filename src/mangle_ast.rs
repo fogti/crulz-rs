@@ -18,7 +18,7 @@ pub trait MangleAST: Default {
 
     #[inline]
     fn take(mut self: &mut Self) -> Self {
-        std::mem::replace(&mut self, Default::default())
+        std::mem::take(&mut self)
     }
 
     #[inline]

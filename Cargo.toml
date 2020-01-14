@@ -15,8 +15,8 @@ anyhow = "1.0"
 bincode = { version = "1.2", optional = true }
 cfg-if = "0.1"
 clap = "2.33"
-codespan = "0.5"
-codespan-reporting = "0.5"
+codespan = "0.7"
+codespan-reporting = "0.7"
 delegate = "0.3"
 flate2 = { version = "1.0", optional = true }
 itertools = "0.8"
