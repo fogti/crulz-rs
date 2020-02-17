@@ -1,6 +1,15 @@
-running 10 tests
-test mangle_ast::tests::bench_replace  ... bench:      12,278 ns/iter (+/- 212)
-test mangle_ast::tests::bench_simplify ... bench:      37,380 ns/iter (+/- 4,179)
-test sharpen::tests::bench_clsfit2     ... bench:         764 ns/iter (+/- 9)
 
-test result: ok. 0 passed; 0 failed; 7 ignored; 3 measured; 0 filtered out
+running 5 tests
+test mangle_ast::tests::test_compact_tl ... ignored
+test mangle_ast::tests::test_simplify ... ignored
+test parser::tests::test_args2unspaced ... ignored
+test mangle_ast::tests::bench_compact_tl ... bench:         732 ns/iter (+/- 36)
+test mangle_ast::tests::bench_simplify   ... bench:       1,013 ns/iter (+/- 26)
+
+test result: ok. 0 passed; 0 failed; 3 ignored; 2 measured; 0 filtered out
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+
