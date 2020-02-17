@@ -1,2 +1,2 @@
-\(suppress {the following should fail to evaluate})\
-\(fseq \(add \(a) \(a)) \(def a 0 1))
+\suppress({the following should fail to evaluate})\
+\fseq(\add(\a \a) \def(a 0 1))

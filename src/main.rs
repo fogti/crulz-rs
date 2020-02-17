@@ -40,8 +40,9 @@ fn main() {
     use crate::mangle_ast::MangleAST;
     use clap::Arg;
 
+    #[allow(unused_mut)]
     let mut matches = clap::App::new("crulz")
-        .version("0.0.1")
+        .version(clap::crate_version!())
         .author("Erik Zscheile <erik.zscheile@gmail.com>")
         .about("a macro language parser + interpreter")
         .arg(

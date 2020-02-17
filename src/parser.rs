@@ -36,6 +36,35 @@ fn str_split_at_while(x: &str, mut f: impl FnMut(char) -> bool) -> (&str, &str) 
     )
 }
 
+/// escaped escape symbol or other escaped code: optional passthrough
+fn parse_escaped_const(i: char, opts: ParserOptions) -> Option<ASTNode> {
+    Some(ASTNode::Constant(
+        true,
+        match i {
+            _ if i == opts.escc && !opts.pass_escc => {
+                let mut tmp = [0; 4];
+                let tmp = opts.escc.encode_utf8(&mut tmp);
+                (*tmp).into()
+            }
+            '\n' => crulst_atom!(""),
+            '$' => crulst_atom!("$"),
+            _ => return None,
+        },
+    ))
+}
+
+fn str_split_at_ctrl(
+    data: &str,
+    opts: ParserOptions,
+    f_do_cont_at: impl Fn(char) -> bool,
+) -> (&str, &str) {
+    str_split_at_while(data, |i| match i {
+        '$' | '(' | ')' | '{' | '}' => false,
+        _ if i == opts.escc => false,
+        _ => f_do_cont_at(i),
+    })
+}
+
 pub(crate) fn args2unspaced(args: VAN) -> CmdEvalArgs {
     use crate::mangle_ast::MangleAST;
     use itertools::Itertools;
@@ -79,8 +108,9 @@ impl Parse for ASTNode {
         let i = iter.next().ok_or_else(|| (data, "unexpected EOF"))?;
         match i {
             _ if i == escc => {
+                let d_after_escc = iter.as_str();
                 let i = iter.next().ok_or_else(|| (data, "unexpected EOF"))?;
-                Ok(if i == '(' {
+                if i == '(' {
                     // got begin of cmdeval block
                     let (rest, mut vanx) = VAN::parse(iter.as_str(), opts)?;
                     if vanx.is_empty() {
@@ -88,7 +118,7 @@ impl Parse for ASTNode {
                     }
                     let mut iter = rest.chars();
                     if iter.next() != Some(')') {
-                        return Err((data, "unexpected EOF"));
+                        return Err((data, "expected ')' instead"));
                     }
 
                     // extract command
@@ -110,32 +140,40 @@ impl Parse for ASTNode {
                     if cmd.last().map(astnode_is_space).unwrap() {
                         cmd.pop();
                     }
-                    (iter.as_str(), ASTNode::CmdEval(cmd, args2unspaced(van)))
+                    Ok((iter.as_str(), ASTNode::CmdEval(cmd, args2unspaced(van))))
+                } else if is_scope_end(i) {
+                    Err((
+                        str_slice_between(data, iter.as_str()),
+                        "dangerous escaped end-of-scope marker",
+                    ))
+                } else if let Some(c) = parse_escaped_const(i, opts) {
+                    Ok((iter.as_str(), c))
                 } else {
-                    // escaped escape symbol or other escaped code: optional passthrough
-                    (
-                        iter.as_str(),
-                        ASTNode::Constant(
-                            true,
-                            match i {
-                                _ if i == escc && !opts.pass_escc => {
-                                    let mut tmp = [0; 4];
-                                    let tmp = escc.encode_utf8(&mut tmp);
-                                    (*tmp).into()
-                                }
-                                _ if is_scope_end(i) => {
-                                    return Err((
-                                        str_slice_between(data, iter.as_str()),
-                                        "dangerous escaped end-of-scope marker",
-                                    ))
-                                }
-                                '\n' => crulst_atom!(""),
-                                '$' => crulst_atom!("$"),
-                                _ => data.into(),
-                            },
-                        ),
-                    )
-                })
+                    // interpret it as a command (LaTeX-alike)
+                    let (cmd, mut rest) =
+                        str_split_at_ctrl(d_after_escc, opts, |x| !x.is_whitespace());
+                    if cmd.is_empty() {
+                        return Err((
+                            str_slice_between(data, iter.as_str()),
+                            "got empty eval stmt",
+                        ));
+                    }
+                    let vanx = if rest.starts_with('(') {
+                        let (tmp_rest, tmp) = ASTNode::parse(rest, opts)?;
+                        if let ASTNode::Grouped(GroupType::Strict, van) = tmp {
+                            rest = tmp_rest;
+                            args2unspaced(van)
+                        } else {
+                            unreachable!()
+                        }
+                    } else {
+                        Default::default()
+                    };
+                    Ok((
+                        rest,
+                        ASTNode::CmdEval(vec![ASTNode::Constant(true, cmd.into())], vanx),
+                    ))
+                }
             }
             '(' => {
                 let (rest, van) = VAN::parse(iter.as_str(), opts)?;
@@ -153,10 +191,6 @@ impl Parse for ASTNode {
                 }
                 Ok((iter.as_str(), ASTNode::Grouped(GroupType::Loose, van)))
             }
-            _ if is_scope_end(i) => Err((
-                str_slice_between(data, iter.as_str()),
-                "unexpected unbalanced end-of-scope marker",
-            )),
             '$' => {
                 let (cdat, rest) = str_split_at_while(iter.as_str(), |i| i == '$');
                 let (idxs, rest) = str_split_at_while(rest, |i| i.is_digit(10));
@@ -168,12 +202,14 @@ impl Parse for ASTNode {
                     },
                 ))
             }
+            _ if is_scope_end(i) => Err((
+                str_slice_between(data, iter.as_str()),
+                "unexpected unbalanced end-of-scope marker",
+            )),
             _ => {
                 let is_whitespace = i.is_whitespace();
-                let (cdat, rest) = str_split_at_while(data, |i| match i {
-                    '\\' | '$' | '(' | ')' | '{' | '}' => false,
-                    _ => i.is_whitespace() == is_whitespace,
-                });
+                let (cdat, rest) =
+                    str_split_at_ctrl(data, opts, |x| x.is_whitespace() == is_whitespace);
                 Ok((rest, ASTNode::Constant(!is_whitespace, cdat.into())))
             }
         }

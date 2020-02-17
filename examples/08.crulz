@@ -1,1 +1,1 @@
-\(include examples/06.crulz)\(include examples/07.crulz)
+\include(examples/06.crulz)\include(examples/07.crulz)
