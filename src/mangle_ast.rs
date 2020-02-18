@@ -1,24 +1,18 @@
-use crate::ast::{ASTNode, CmdEvalArgs, GroupType, VAN};
+use crate::ast::{ASTNode, CmdEvalArgs, GroupType, LiftAST, VAN};
 use delegate::delegate;
 use itertools::Itertools;
 
 // do NOT "use ASTNode::*;" here, because sometimes we want to "use ASTNodeClass::*;"
 
 pub trait MangleAST: Default {
-    type LiftT;
-    // lift the AST one level up (ASTNode -> VAN || VAN -> ASTNode),
-    // used as helper for MangleAST::simplify_inplace and others
-    // to convert to the appropriate datatype
-    fn lift_ast(self) -> Self::LiftT;
-
     fn to_str(self, escc: char) -> String;
 
     /// helper for MangleAST::simplify and interp::eval
     fn get_complexity(&self) -> usize;
 
-    #[inline]
-    fn take(mut self: &mut Self) -> Self {
-        std::mem::take(&mut self)
+    #[inline(always)]
+    fn take(&mut self) -> Self {
+        std::mem::take(self)
     }
 
     #[inline]
@@ -36,12 +30,6 @@ pub trait MangleAST: Default {
 }
 
 impl MangleAST for ASTNode {
-    type LiftT = VAN;
-    #[inline]
-    fn lift_ast(self) -> Self::LiftT {
-        vec![self]
-    }
-
     fn to_str(self, escc: char) -> String {
         use ASTNode::*;
         match self {
@@ -161,12 +149,6 @@ impl MangleAST for ASTNode {
 }
 
 impl MangleAST for VAN {
-    type LiftT = ASTNode;
-    #[inline]
-    fn lift_ast(self) -> Self::LiftT {
-        ASTNode::Grouped(GroupType::Dissolving, self)
-    }
-
     fn to_str(self, escc: char) -> String {
         self.into_iter()
             .fold(String::new(), |acc, i| acc + &i.to_str(escc))
@@ -241,12 +223,6 @@ impl MangleAST for VAN {
 }
 
 impl MangleAST for CmdEvalArgs {
-    type LiftT = ASTNode;
-    #[inline]
-    fn lift_ast(self) -> Self::LiftT {
-        ASTNode::Grouped(GroupType::Dissolving, self.0)
-    }
-
     fn to_str(self, escc: char) -> String {
         self.0
             .into_iter()

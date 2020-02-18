@@ -76,6 +76,33 @@ impl ASTNode {
     }
 }
 
+pub(crate) trait LiftAST {
+    type LiftT: LiftAST;
+
+    // lift the AST one level up (ASTNode -> VAN || VAN -> ASTNode),
+    // used as helper for MangleAST::simplify_inplace and others
+    // to convert to the appropriate datatype
+    fn lift_ast(self) -> Self::LiftT;
+}
+
+impl LiftAST for ASTNode {
+    type LiftT = VAN;
+
+    #[inline(always)]
+    fn lift_ast(self) -> Self::LiftT {
+        vec![self]
+    }
+}
+
+impl LiftAST for VAN {
+    type LiftT = ASTNode;
+
+    #[inline(always)]
+    fn lift_ast(self) -> Self::LiftT {
+        ASTNode::Grouped(GroupType::Dissolving, self)
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CmdEvalArgs(pub VAN);
 

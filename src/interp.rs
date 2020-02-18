@@ -1,5 +1,5 @@
 use crate::{
-    ast::{ASTNode, Atom, CmdEvalArgs, GroupType, VAN},
+    ast::{ASTNode, Atom, CmdEvalArgs, GroupType, LiftAST, VAN},
     mangle_ast::MangleAST,
     parser::ParserOptions,
 };
@@ -252,7 +252,7 @@ define_bltins! {
                 *gt = GroupType::Dissolving
             }
             x
-        }).collect::<Vec<_>>().simplify()).lift_ast())
+        }).collect::<Vec<_>>().simplify()).0.lift_ast())
     },
 }
 
