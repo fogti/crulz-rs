@@ -20,10 +20,8 @@ type CompilatesMap<'a> = HashMap<&'a str, &'a str>;
 struct EvalContext<'a> {
     defs: DefinesMap,
     opts: ParserOptions,
-    #[cfg(feature = "compile")]
+    #[cfg_attr(not(feature = "compile"), allow(unused))]
     comp_map: &'a CompilatesMap<'a>,
-    #[cfg(not(feature = "compile"))]
-    comp_map: std::marker::PhantomData<&'a str>,
 }
 
 #[cfg(feature = "compile")]
@@ -51,22 +49,6 @@ impl EvalContext<'_> {
             .with_context(|| format!("Failed to write compfile '{}'", compf))?;
         Ok(())
     }
-}
-
-fn conv_to_constant(arg: &ASTNode) -> Option<Atom> {
-    Some(match arg {
-        ASTNode::Constant(_, x) => x.clone(),
-        ASTNode::Grouped(gt, x) if *gt != GroupType::Strict => {
-            let mut impc = x.iter().map(conv_to_constant);
-            if x.len() == 1 {
-                impc.next().unwrap()?
-            } else {
-                impc.try_fold(String::new(), |acc, i| i.map(|i| acc + &i))?
-                    .into()
-            }
-        }
-        _ => return None,
-    })
 }
 
 fn eval_foreach(
@@ -151,7 +133,7 @@ define_bltins! {
         }
         let mut unpack = |x: &mut ASTNode, ctx: &mut EvalContext<'_>| {
             x.eval(ctx);
-            conv_to_constant(x)
+            x.conv_to_constant()
         };
         let varname = unpack(&mut args[0], ctx)?;
         let argc: usize = unpack(&mut args[1], ctx)?
@@ -172,7 +154,7 @@ define_bltins! {
         }
         let mut unpack = |x: &mut ASTNode, ctx: &mut EvalContext<'_>| {
             x.eval(ctx);
-            conv_to_constant(x)
+            x.conv_to_constant()
         };
         let varname = unpack(&mut args[0], ctx)?;
         let argc: usize = unpack(&mut args[1], ctx)?
@@ -222,7 +204,7 @@ define_bltins! {
     },
     "include" => (args | 1, ctx) {
         args[0].eval(ctx);
-        let filename = conv_to_constant(&args[0])?;
+        let filename = args[0].conv_to_constant()?;
         let filename: &str = &filename;
         Some(
             { cfg_if! {
@@ -247,7 +229,7 @@ define_bltins! {
     "undef" => (args | 1, ctx) {
         let unpack = |x: &mut ASTNode, ctx: &mut EvalContext<'_>| {
             x.eval(ctx);
-            conv_to_constant(x)
+            x.conv_to_constant()
         };
         let varname = unpack(&mut args[0], ctx)?;
         ctx.defs
@@ -367,17 +349,14 @@ impl Eval for CmdEvalArgs {
 pub fn eval(
     data: &mut VAN,
     opts: ParserOptions,
-    _comp_map: &CompilatesMap<'_>,
+    comp_map: &CompilatesMap<'_>,
     comp_out: Option<&str>,
 ) {
     use crate::mangle_ast::MangleASTExt;
     let mut ctx = EvalContext {
         defs: HashMap::new(),
         opts,
-        #[cfg(feature = "compile")]
-        comp_map: _comp_map,
-        #[cfg(not(feature = "compile"))]
-        comp_map: std::marker::PhantomData,
+        comp_map,
     };
     let mut cplx = data.get_complexity();
     loop {

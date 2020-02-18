@@ -58,6 +58,22 @@ impl ASTNode {
             _ => None,
         }
     }
+
+    pub(crate) fn conv_to_constant(&self) -> Option<Atom> {
+        Some(match self {
+            ASTNode::Constant(_, x) => x.clone(),
+            ASTNode::Grouped(gt, x) if *gt != GroupType::Strict => {
+                let mut impc = x.iter().map(ASTNode::conv_to_constant);
+                if x.len() == 1 {
+                    impc.next().unwrap()?
+                } else {
+                    impc.try_fold(String::new(), |acc, i| Some(acc + i.as_ref()?))?
+                        .into()
+                }
+            }
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
