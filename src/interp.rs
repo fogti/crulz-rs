@@ -187,11 +187,11 @@ define_bltins! {
             let x = &mut args[0];
             x.eval(ctx);
         }
-        let elems = crate::parser::args2unspaced(match &args[0] {
+        let elems = CmdEvalArgs::from_wsdelim(match &args[0] {
             ASTNode::Grouped(_, ref elems) => Some(elems),
             _ => None,
         }?.clone()).into_iter().map(|i| if let ASTNode::Grouped(_, tmp_args) = i {
-            crate::parser::args2unspaced(tmp_args)
+            CmdEvalArgs::from_wsdelim(tmp_args)
         } else {
             CmdEvalArgs(i.lift_ast())
         });
@@ -265,7 +265,7 @@ define_bltins! {
     },
     "unee" => (args) {
         // un-escape for eval
-        Some(crate::parser::args2unspaced(args.into_iter().map(|mut x| {
+        Some(CmdEvalArgs::from_wsdelim(args.into_iter().map(|mut x| {
             if let ASTNode::Grouped(ref mut gt, _) = x {
                 *gt = GroupType::Dissolving
             }

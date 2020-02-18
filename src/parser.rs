@@ -19,13 +19,6 @@ fn is_scope_end(x: char) -> bool {
     }
 }
 
-fn astnode_is_space(x: &ASTNode) -> bool {
-    match x {
-        ASTNode::NullNode | ASTNode::Constant(false, _) => true,
-        _ => false,
-    }
-}
-
 /// 1. part while f(x) == true, then 2. part
 fn str_split_at_while(x: &str, mut f: impl FnMut(char) -> bool) -> (&str, &str) {
     x.split_at(
@@ -65,17 +58,6 @@ fn str_split_at_ctrl(
         _ if i == opts.escc => false,
         _ => f_do_cont_at(i),
     })
-}
-
-pub(crate) fn args2unspaced(args: VAN) -> CmdEvalArgs {
-    use crate::mangle_ast::MangleAST;
-    use itertools::Itertools;
-    args.into_iter()
-        .group_by(astnode_is_space)
-        .into_iter()
-        .filter(|(d, _)| !*d)
-        .map(|(_, i)| i.collect::<VAN>().lift_ast().simplify())
-        .collect()
 }
 
 // === parser options
@@ -153,7 +135,7 @@ impl Parse for ASTNode {
                         .iter()
                         .enumerate()
                         .filter_map(|y| {
-                            if astnode_is_space(&y.1) {
+                            if y.1.is_space() {
                                 Some(y.0 + 1)
                             } else {
                                 None
@@ -163,10 +145,10 @@ impl Parse for ASTNode {
                         .unwrap_or(1);
                     let van = vanx.split_off(split_point);
                     let mut cmd = vanx;
-                    if cmd.last().map(astnode_is_space).unwrap() {
+                    if cmd.last().map(ASTNode::is_space).unwrap() {
                         cmd.pop();
                     }
-                    Ok((iter.as_str(), ASTNode::CmdEval(cmd, args2unspaced(van))))
+                    Ok((iter.as_str(), ASTNode::CmdEval(cmd, CmdEvalArgs::from_wsdelim(van))))
                 } else if let Some(c) = parse_escaped_const(i, opts) {
                     Ok((iter.as_str(), c))
                 } else if is_scope_end(i) {
@@ -182,7 +164,7 @@ impl Parse for ASTNode {
                         let (tmp_rest, tmp) = ASTNode::parse(rest, opts)?;
                         if let ASTNode::Grouped(GroupType::Strict, van) = tmp {
                             rest = tmp_rest;
-                            args2unspaced(van)
+                            CmdEvalArgs::from_wsdelim(van)
                         } else {
                             unreachable!()
                         }
@@ -309,27 +291,4 @@ pub fn file2ast(filename: &str, opts: ParserOptions) -> Result<VAN, anyhow::Erro
         .unwrap();
         anyhow::anyhow!("{}", descr)
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_args2unspaced() {
-        use ASTNode::*;
-        assert_eq!(
-            args2unspaced(vec![
-                Constant(true, "a".into()),
-                Constant(false, "a".into()),
-                Constant(true, "a".into()),
-                Constant(true, "a".into()),
-                Constant(false, "a".into())
-            ]),
-            CmdEvalArgs(vec![
-                Constant(true, "a".into()),
-                Constant(true, "aa".into())
-            ])
-        );
-    }
 }
