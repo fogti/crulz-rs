@@ -35,7 +35,7 @@ impl std::iter::FromIterator<ASTNode> for CmdEvalArgs {
 
 impl CmdEvalArgs {
     delegate! {
-        target self.0 {
+        to self.0 {
             pub fn iter(&self) -> std::slice::Iter<ASTNode>;
             pub fn iter_mut(&mut self) -> std::slice::IterMut<ASTNode>;
             pub fn len(&self) -> usize;

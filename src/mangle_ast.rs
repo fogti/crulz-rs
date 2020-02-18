@@ -267,7 +267,7 @@ impl MangleAST for CmdEvalArgs {
     }
 
     delegate! {
-        target self.0 {
+        to self.0 {
             fn get_complexity(&self) -> usize;
             fn apply_arguments_inplace(&mut self, args: &CmdEvalArgs) -> Result<(), usize>;
         }

@@ -46,6 +46,8 @@ fn parse_escaped_const(i: char, opts: ParserOptions) -> Option<ASTNode> {
                 let tmp = opts.escc.encode_utf8(&mut tmp);
                 (*tmp).into()
             }
+            '{' => crulst_atom!("{"),
+            '}' => crulst_atom!("}"),
             '\n' => crulst_atom!(""),
             '$' => crulst_atom!("$"),
             _ => return None,
@@ -94,31 +96,55 @@ impl ParserOptions {
 // === parse trait
 
 trait Parse: Sized {
+    type ErrorDesc: std::error::Error;
     /// # Return value
     /// * `Ok(rest, parsed_obj)`
     /// * `Err(offending_code, description)`
-    fn parse(data: &str, opts: ParserOptions) -> Result<(&str, Self), (&str, &'static str)>;
+    fn parse(data: &str, opts: ParserOptions) -> Result<(&str, Self), (&str, Self::ErrorDesc)>;
 }
 
+#[derive(Clone, Debug, thiserror::Error)]
+pub enum ParserErrorDetail {
+    #[error("unexpected EOF")]
+    UnexpectedEof,
+    #[error("got empty/invalid eval statement")]
+    InvalidEval,
+    #[error("expected '{0}' instead")]
+    ExpectedInstead(char),
+
+    /// Escaped end-of-scope markers are dangerous, because they probably don't
+    /// do, what you would naively expect. The correct way to escape them is
+    /// to *not* escape the corresponding begin-of-scope marker, which thus
+    /// constitutes a Group.
+    #[error("dangerous escaped end-of-scope marker ('{0}')")]
+    DangerousEos(char),
+    #[error("unexpected unbalanced end-of-scope marker ('{0}')")]
+    UnbalancedEos(char),
+}
+
+type PED = ParserErrorDetail;
+
 impl Parse for ASTNode {
-    fn parse(data: &str, opts: ParserOptions) -> Result<(&str, Self), (&str, &'static str)> {
+    type ErrorDesc = PED;
+
+    fn parse(data: &str, opts: ParserOptions) -> Result<(&str, Self), (&str, PED)> {
         let escc = opts.escc;
         let mut iter = data.chars();
 
-        let i = iter.next().ok_or_else(|| (data, "unexpected EOF"))?;
+        let i = iter.next().ok_or_else(|| (data, PED::UnexpectedEof))?;
         match i {
             _ if i == escc => {
                 let d_after_escc = iter.as_str();
-                let i = iter.next().ok_or_else(|| (data, "unexpected EOF"))?;
+                let i = iter.next().ok_or_else(|| (data, PED::UnexpectedEof))?;
                 if i == '(' {
                     // got begin of cmdeval block
                     let (rest, mut vanx) = VAN::parse(iter.as_str(), opts)?;
                     if vanx.is_empty() {
-                        return Err((&data[..std::cmp::min(data.len(), 3)], "got empty eval stmt"));
+                        return Err((&data[..std::cmp::min(data.len(), 3)], PED::InvalidEval));
                     }
                     let mut iter = rest.chars();
                     if iter.next() != Some(')') {
-                        return Err((data, "expected ')' instead"));
+                        return Err((data, PED::ExpectedInstead(/* '(' */ ')')));
                     }
 
                     // extract command
@@ -141,22 +167,16 @@ impl Parse for ASTNode {
                         cmd.pop();
                     }
                     Ok((iter.as_str(), ASTNode::CmdEval(cmd, args2unspaced(van))))
-                } else if is_scope_end(i) {
-                    Err((
-                        str_slice_between(data, iter.as_str()),
-                        "dangerous escaped end-of-scope marker",
-                    ))
                 } else if let Some(c) = parse_escaped_const(i, opts) {
                     Ok((iter.as_str(), c))
+                } else if is_scope_end(i) {
+                    Err((str_slice_between(data, iter.as_str()), PED::DangerousEos(i)))
                 } else {
                     // interpret it as a command (LaTeX-alike)
                     let (cmd, mut rest) =
                         str_split_at_ctrl(d_after_escc, opts, |x| !x.is_whitespace());
                     if cmd.is_empty() {
-                        return Err((
-                            str_slice_between(data, iter.as_str()),
-                            "got empty eval stmt",
-                        ));
+                        return Err((str_slice_between(data, iter.as_str()), PED::InvalidEval));
                     }
                     let vanx = if rest.starts_with('(') {
                         let (tmp_rest, tmp) = ASTNode::parse(rest, opts)?;
@@ -179,7 +199,7 @@ impl Parse for ASTNode {
                 let (rest, van) = VAN::parse(iter.as_str(), opts)?;
                 let mut iter = rest.chars();
                 if iter.next() != Some(')') {
-                    return Err((rest, /* '(' */ "expected ')' instead"));
+                    return Err((rest, PED::ExpectedInstead(/* '(' */ ')')));
                 }
                 Ok((iter.as_str(), ASTNode::Grouped(GroupType::Strict, van)))
             }
@@ -187,7 +207,7 @@ impl Parse for ASTNode {
                 let (rest, van) = VAN::parse(iter.as_str(), opts)?;
                 let mut iter = rest.chars();
                 if iter.next() != Some('}') {
-                    return Err((rest, /* '{' */ "expected '}' instead"));
+                    return Err((rest, PED::ExpectedInstead(/* '(' */ '}')));
                 }
                 Ok((iter.as_str(), ASTNode::Grouped(GroupType::Loose, van)))
             }
@@ -204,7 +224,7 @@ impl Parse for ASTNode {
             }
             _ if is_scope_end(i) => Err((
                 str_slice_between(data, iter.as_str()),
-                "unexpected unbalanced end-of-scope marker",
+                PED::UnbalancedEos(i),
             )),
             _ => {
                 let is_whitespace = i.is_whitespace();
@@ -217,7 +237,8 @@ impl Parse for ASTNode {
 }
 
 impl Parse for VAN {
-    fn parse(mut data: &str, opts: ParserOptions) -> Result<(&str, Self), (&str, &'static str)> {
+    type ErrorDesc = PED;
+    fn parse(mut data: &str, opts: ParserOptions) -> Result<(&str, Self), (&str, PED)> {
         let mut ret = VAN::new();
         while data.chars().next().map(is_scope_end) == Some(false) {
             let (rest, node) = ASTNode::parse(data, opts)?;
@@ -231,10 +252,7 @@ impl Parse for VAN {
 // === main parser
 
 /// At top level, only parse things inside CmdEval's
-fn parse_toplevel(
-    mut data: &str,
-    opts: ParserOptions,
-) -> Result<(&str, VAN), (&str, &'static str)> {
+pub fn parse_toplevel(mut data: &str, opts: ParserOptions) -> Result<VAN, (&str, PED)> {
     let mut ret = VAN::new();
     while !data.is_empty() {
         let mut cstp_has_nws = false;
@@ -245,15 +263,14 @@ fn parse_toplevel(
         if !cstp.is_empty() {
             ret.push(ASTNode::Constant(cstp_has_nws, cstp.into()));
         }
-        data = if !rest.is_empty() {
-            let (rest, node) = ASTNode::parse(rest, opts)?;
-            ret.push(node);
-            rest
-        } else {
-            rest
-        };
+        if rest.is_empty() {
+            break;
+        }
+        let (rest, node) = ASTNode::parse(rest, opts)?;
+        ret.push(node);
+        data = rest;
     }
-    Ok((data, ret))
+    Ok(ret)
 }
 
 pub fn file2ast(filename: &str, opts: ParserOptions) -> Result<VAN, anyhow::Error> {
@@ -264,46 +281,34 @@ pub fn file2ast(filename: &str, opts: ParserOptions) -> Result<VAN, anyhow::Erro
     let input = std::str::from_utf8(fh.as_slice())
         .with_context(|| format!("file '{}' contains non-UTF-8 data", filename))?;
 
-    use anyhow::anyhow;
-    match parse_toplevel(input, opts) {
-        Ok((rest, van)) => {
-            if rest.is_empty() {
-                Ok(van)
-            } else {
-                Err(anyhow!(
-                    "unexpected EOF (more closing parens as opening parens)"
-                ))
-            }
-        }
-        Err((offending, descr)) => {
-            use codespan_reporting::{
-                diagnostic::{Diagnostic, Label},
-                term,
-            };
-            use std::{convert::TryFrom, str::FromStr};
+    parse_toplevel(input, opts).map_err(|(offending, descr)| {
+        use codespan_reporting::{
+            diagnostic::{Diagnostic, Label},
+            term,
+        };
+        use std::{convert::TryFrom, str::FromStr};
 
-            let writer = term::termcolor::StandardStream::stderr(
-                term::ColorArg::from_str("auto").unwrap().into(),
-            );
-            let config = term::Config::default();
-            let mut files = codespan::Files::new();
-            let fileid = files.add(filename, input);
-            let start_pos = u32::try_from(get_offset_of(input, offending)).unwrap();
-            let offending_len = u32::try_from(offending.len()).unwrap();
+        let writer = term::termcolor::StandardStream::stderr(
+            term::ColorArg::from_str("auto").unwrap().into(),
+        );
+        let config = term::Config::default();
+        let mut files = codespan::Files::new();
+        let fileid = files.add(filename, input);
+        let start_pos = u32::try_from(get_offset_of(input, offending)).unwrap();
+        let offending_len = u32::try_from(offending.len()).unwrap();
 
-            term::emit(
-                &mut writer.lock(),
-                &config,
-                &files,
-                &Diagnostic::new_error(
-                    descr.to_string(),
-                    Label::new(fileid, start_pos..(start_pos + offending_len), ""),
-                ),
-            )
-            .unwrap();
-            Err(anyhow!("{}", descr))
-        }
-    }
+        term::emit(
+            &mut writer.lock(),
+            &config,
+            &files,
+            &Diagnostic::new_error(
+                descr.to_string(),
+                Label::new(fileid, start_pos..(start_pos + offending_len), ""),
+            ),
+        )
+        .unwrap();
+        anyhow::anyhow!("{}", descr)
+    })
 }
 
 #[cfg(test)]
