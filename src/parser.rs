@@ -134,13 +134,7 @@ impl Parse for ASTNode {
                     let split_point = vanx
                         .iter()
                         .enumerate()
-                        .filter_map(|y| {
-                            if y.1.is_space() {
-                                Some(y.0 + 1)
-                            } else {
-                                None
-                            }
-                        })
+                        .filter_map(|y| if y.1.is_space() { Some(y.0 + 1) } else { None })
                         .next()
                         .unwrap_or(1);
                     let van = vanx.split_off(split_point);
@@ -148,7 +142,10 @@ impl Parse for ASTNode {
                     if cmd.last().map(ASTNode::is_space).unwrap() {
                         cmd.pop();
                     }
-                    Ok((iter.as_str(), ASTNode::CmdEval(cmd, CmdEvalArgs::from_wsdelim(van))))
+                    Ok((
+                        iter.as_str(),
+                        ASTNode::CmdEval(cmd, CmdEvalArgs::from_wsdelim(van)),
+                    ))
                 } else if let Some(c) = parse_escaped_const(i, opts) {
                     Ok((iter.as_str(), c))
                 } else if is_scope_end(i) {

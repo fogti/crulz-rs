@@ -76,7 +76,7 @@ impl ASTNode {
     }
 }
 
-pub(crate) trait LiftAST {
+pub trait LiftAST {
     type LiftT: LiftAST;
 
     // lift the AST one level up (ASTNode -> VAN || VAN -> ASTNode),

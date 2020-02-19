@@ -1,4 +1,4 @@
-#![cfg_attr(test, feature(test))]
+#![forbid(unsafe_code)]
 
 #[macro_use]
 #[allow(dead_code, clippy::unreadable_literal)]

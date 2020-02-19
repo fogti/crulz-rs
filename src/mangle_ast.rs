@@ -192,7 +192,7 @@ impl MangleAST for VAN {
                             if let Constant(_, y) = j {
                                 y
                             } else {
-                                unsafe { std::hint::unreachable_unchecked() }
+                                unreachable!()
                             }
                         })
                         .fold(String::new(), |acc, i| acc + &i)
@@ -204,7 +204,7 @@ impl MangleAST for VAN {
                             if let Grouped(_, x) = j {
                                 x
                             } else {
-                                unsafe { std::hint::unreachable_unchecked() }
+                                unreachable!()
                             }
                         })
                         .collect(),
@@ -287,7 +287,6 @@ impl MangleASTExt for VAN {
 mod tests {
     use super::ASTNode::*;
     use super::*;
-    extern crate test;
 
     #[test]
     fn test_simplify() {
@@ -315,35 +314,5 @@ mod tests {
         ]
         .compact_toplevel();
         assert_eq!(ast, vec![Constant(true, "abc".into())]);
-    }
-
-    #[bench]
-    fn bench_simplify(b: &mut test::Bencher) {
-        let ast = vec![
-            Constant(true, "a".into()),
-            Constant(true, "b".into())
-                .lift_ast()
-                .lift_ast()
-                .lift_ast()
-                .lift_ast(),
-            Constant(true, "c".into()),
-        ]
-        .lift_ast()
-        .lift_ast()
-        .lift_ast();
-        b.iter(|| ast.clone().simplify());
-    }
-
-    #[bench]
-    fn bench_compact_tl(b: &mut test::Bencher) {
-        let ast = vec![
-            Constant(true, "a".into()),
-            Constant(false, "b".into()).lift_ast().lift_ast(),
-            Constant(true, "a".into()),
-            Constant(false, "b".into()).lift_ast().lift_ast(),
-            Constant(true, "c".into()),
-        ]
-        .simplify();
-        b.iter(|| ast.clone().compact_toplevel());
     }
 }
