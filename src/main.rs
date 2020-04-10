@@ -43,7 +43,7 @@ fn main() {
     #[allow(unused_mut)]
     let mut matches = clap::App::new("crulz")
         .version(clap::crate_version!())
-        .author("Erik Zscheile <erik.zscheile@gmail.com>")
+        .author("Erik Zscheile <zseri.devel@ytrizja.de>")
         .about("a macro language parser + interpreter")
         .arg(
             Arg::with_name("INPUT")
