@@ -1,5 +1,5 @@
 use crate::ast::{ASTNode, CmdEvalArgs, GroupType, LiftAST, VAN};
-use delegate::delegate;
+use delegate_attr::delegate;
 use itertools::Itertools;
 
 // do NOT "use ASTNode::*;" here, because sometimes we want to "use ASTNodeClass::*;"
@@ -37,24 +37,22 @@ impl MangleAST for ASTNode {
             Constant(_, x) => x.to_string(),
             Grouped(gt, elems) => {
                 let inner = elems.to_str(escc);
-                let is_strict = gt == GroupType::Strict;
-                let mut ret = String::with_capacity((if is_strict { 2 } else { 0 }) + inner.len());
-                if is_strict {
-                    ret.push('(');
+                if gt == GroupType::Strict {
+                    format!("({})", inner)
+                } else {
+                    inner
                 }
-                ret += &inner;
-                if is_strict {
-                    ret.push(')');
-                }
-                ret
             }
-            Argument { indirection, index } => {
-                let mut ret = std::iter::repeat('$').take(indirection + 1).collect();
-                if let Some(index) = index {
-                    ret += format!("{}", index).as_str();
-                }
-                ret
-            }
+            Argument { indirection, index } => std::iter::repeat('$')
+                .take(indirection + 1)
+                .chain(
+                    index
+                        .as_ref()
+                        .map(usize::to_string)
+                        .iter()
+                        .flat_map(|i| i.chars()),
+                )
+                .collect(),
             CmdEval(cmd, args) => format!("{}({}{})", escc, cmd.to_str(escc), args.to_str(escc)),
         }
     }
@@ -242,12 +240,11 @@ impl MangleAST for CmdEvalArgs {
             .collect()
     }
 
-    delegate! {
-        to self.0 {
-            fn get_complexity(&self) -> usize;
-            fn apply_arguments_inplace(&mut self, args: &CmdEvalArgs) -> Result<(), usize>;
-        }
-    }
+    #[delegate(self.0)]
+    fn get_complexity(&self) -> usize;
+
+    #[delegate(self.0)]
+    fn apply_arguments_inplace(&mut self, args: &CmdEvalArgs) -> Result<(), usize>;
 }
 
 pub trait MangleASTExt: MangleAST {

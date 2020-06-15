@@ -109,13 +109,16 @@ macro_rules! define_blti {
 
 macro_rules! define_bltins {
     ($($name:expr => $a2:tt $body:tt,)*) => {
-        static BUILTINS: phf::Map<&'static str, (Option<usize>, BuiltInFn)> = phf_map! {
-            $($name => define_blti!($a2 $body),)*
-        };
+        phf_map! { $($name => define_blti!($a2 $body),)* }
     }
 }
 
-define_bltins! {
+fn unpack(x: &mut ASTNode, ctx: &mut EvalContext<'_>) -> Option<crate::crulst::CrulzAtom> {
+    x.eval(ctx);
+    x.conv_to_constant()
+}
+
+static BUILTINS: phf::Map<&'static str, (Option<usize>, BuiltInFn)> = define_bltins! {
     "add" => (args | 2) {
         let unpacked = args.into_iter().filter_map(|x| Some(x
             .as_constant()?
@@ -131,10 +134,6 @@ define_bltins! {
         if args.len() < 3 {
             return None;
         }
-        let mut unpack = |x: &mut ASTNode, ctx: &mut EvalContext<'_>| {
-            x.eval(ctx);
-            x.conv_to_constant()
-        };
         let varname = unpack(&mut args[0], ctx)?;
         let argc: usize = unpack(&mut args[1], ctx)?
             .parse()
@@ -152,10 +151,6 @@ define_bltins! {
         if args.len() < 3 {
             return None;
         }
-        let mut unpack = |x: &mut ASTNode, ctx: &mut EvalContext<'_>| {
-            x.eval(ctx);
-            x.conv_to_constant()
-        };
         let varname = unpack(&mut args[0], ctx)?;
         let argc: usize = unpack(&mut args[1], ctx)?
             .parse()
@@ -227,10 +222,6 @@ define_bltins! {
         Some(ASTNode::NullNode)
     },
     "undef" => (args | 1, ctx) {
-        let unpack = |x: &mut ASTNode, ctx: &mut EvalContext<'_>| {
-            x.eval(ctx);
-            x.conv_to_constant()
-        };
         let varname = unpack(&mut args[0], ctx)?;
         ctx.defs
             .remove(&varname);
@@ -249,12 +240,12 @@ define_bltins! {
         // un-escape for eval
         Some(CmdEvalArgs::from_wsdelim(args.into_iter().map(|mut x| {
             if let ASTNode::Grouped(ref mut gt, _) = x {
-                *gt = GroupType::Dissolving
+                *gt = GroupType::Dissolving;
             }
             x
         }).collect::<Vec<_>>().simplify()).0.lift_ast())
     },
-}
+};
 
 fn eval_cmd(cmd: &mut VAN, args: &mut CmdEvalArgs, mut ctx: &mut EvalContext) -> Option<ASTNode> {
     use crate::mangle_ast::MangleASTExt;

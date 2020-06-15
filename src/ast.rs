@@ -1,4 +1,4 @@
-use delegate::delegate;
+use delegate_attr::delegate;
 use serde::{Deserialize, Serialize};
 
 pub type Atom = crate::crulst::CrulzAtom;
@@ -138,15 +138,14 @@ impl CmdEvalArgs {
             .map(|(_, i)| i.collect::<VAN>().lift_ast().simplify())
             .collect()
     }
+}
 
-    delegate! {
-        to self.0 {
-            pub fn iter(&self) -> std::slice::Iter<ASTNode>;
-            pub fn iter_mut(&mut self) -> std::slice::IterMut<ASTNode>;
-            pub fn len(&self) -> usize;
-            pub fn is_empty(&self) -> bool;
-        }
-    }
+#[delegate(self.0)]
+impl CmdEvalArgs {
+    pub fn iter(&self) -> std::slice::Iter<ASTNode>;
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<ASTNode>;
+    pub fn len(&self) -> usize;
+    pub fn is_empty(&self) -> bool;
 }
 
 #[cfg(test)]

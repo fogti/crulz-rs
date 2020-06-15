@@ -20,13 +20,8 @@ fn is_scope_end(x: char) -> bool {
 }
 
 /// 1. part while f(x) == true, then 2. part
-fn str_split_at_while(x: &str, mut f: impl FnMut(char) -> bool) -> (&str, &str) {
-    x.split_at(
-        x.chars()
-            .take_while(|i| f(*i))
-            .map(|i| i.len_utf8())
-            .sum::<usize>(),
-    )
+fn str_split_at_while(x: &str, f: impl FnMut(&char) -> bool) -> (&str, &str) {
+    x.split_at(x.chars().take_while(f).map(char::len_utf8).sum::<usize>())
 }
 
 /// escaped escape symbol or other escaped code: optional passthrough
@@ -51,11 +46,11 @@ fn parse_escaped_const(i: char, opts: ParserOptions) -> Option<ASTNode> {
 fn str_split_at_ctrl(
     data: &str,
     opts: ParserOptions,
-    f_do_cont_at: impl Fn(char) -> bool,
+    f_do_cont_at: impl Fn(&char) -> bool,
 ) -> (&str, &str) {
     str_split_at_while(data, |i| match i {
         '$' | '(' | ')' | '{' | '}' => false,
-        _ if i == opts.escc => false,
+        _ if i == &opts.escc => false,
         _ => f_do_cont_at(i),
     })
 }
@@ -191,7 +186,7 @@ impl Parse for ASTNode {
                 Ok((iter.as_str(), ASTNode::Grouped(GroupType::Loose, van)))
             }
             '$' => {
-                let (cdat, rest) = str_split_at_while(iter.as_str(), |i| i == '$');
+                let (cdat, rest) = str_split_at_while(iter.as_str(), |i| *i == '$');
                 let (idxs, rest) = str_split_at_while(rest, |i| i.is_digit(10));
                 Ok((
                     rest,
@@ -237,7 +232,7 @@ pub fn parse_toplevel(mut data: &str, opts: ParserOptions) -> Result<VAN, (&str,
         let mut cstp_has_nws = false;
         let (cstp, rest) = str_split_at_while(data, |i| {
             cstp_has_nws |= !i.is_whitespace();
-            i != opts.escc
+            i != &opts.escc
         });
         if !cstp.is_empty() {
             ret.push(ASTNode::Constant(cstp_has_nws, cstp.into()));
@@ -265,25 +260,25 @@ pub fn file2ast(filename: &str, opts: ParserOptions) -> Result<VAN, anyhow::Erro
             diagnostic::{Diagnostic, Label},
             term,
         };
-        use std::{convert::TryFrom, str::FromStr};
+        use std::str::FromStr;
 
-        let writer = term::termcolor::StandardStream::stderr(
-            term::ColorArg::from_str("auto").unwrap().into(),
-        );
-        let config = term::Config::default();
         let mut files = codespan::Files::new();
         let fileid = files.add(filename, input);
-        let start_pos = u32::try_from(get_offset_of(input, offending)).unwrap();
-        let offending_len = u32::try_from(offending.len()).unwrap();
+        let start_pos = get_offset_of(input, offending);
 
         term::emit(
-            &mut writer.lock(),
-            &config,
+            &mut term::termcolor::StandardStream::stderr(
+                term::ColorArg::from_str("auto").unwrap().into(),
+            )
+            .lock(),
+            &term::Config::default(),
             &files,
-            &Diagnostic::new_error(
-                descr.to_string(),
-                Label::new(fileid, start_pos..(start_pos + offending_len), ""),
-            ),
+            &Diagnostic::error()
+                .with_message(descr.to_string())
+                .with_labels(vec![Label::primary(
+                    fileid,
+                    start_pos..(start_pos + offending.len()),
+                )]),
         )
         .unwrap();
         anyhow::anyhow!("{}", descr)
