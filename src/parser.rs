@@ -181,7 +181,7 @@ impl Parse for ASTNode {
                 let (rest, van) = VAN::parse(iter.as_str(), opts)?;
                 let mut iter = rest.chars();
                 if iter.next() != Some('}') {
-                    return Err((rest, PED::ExpectedInstead(/* '(' */ '}')));
+                    return Err((rest, PED::ExpectedInstead(/* '{' */ '}')));
                 }
                 Ok((iter.as_str(), ASTNode::Grouped(GroupType::Loose, van)))
             }
