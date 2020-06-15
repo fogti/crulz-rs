@@ -57,12 +57,9 @@ fn eval_foreach(
     ctx: &mut EvalContext<'_>,
 ) -> Option<ASTNode> {
     Some(
-        if if let ASTNode::Constant(is_dat, _) = &fecmd {
+        if let ASTNode::Constant(is_dat, _) = &fecmd {
             debug_assert!(is_dat);
-            true
-        } else {
-            false
-        } {
+
             // construct a function call
             let mut tmp_cmd = vec![fecmd.clone()];
             elems.fold(Vec::new(), |mut acc, mut tmp_args| {
@@ -118,6 +115,20 @@ fn unpack(x: &mut ASTNode, ctx: &mut EvalContext<'_>) -> Option<crate::crulst::C
     x.conv_to_constant()
 }
 
+fn uneg(mut arg: ASTNode) -> ASTNode {
+    if let ASTNode::Grouped(ref mut gt, _) = arg {
+        *gt = GroupType::Dissolving;
+    }
+    arg
+}
+
+fn fe_elems(x: &ASTNode) -> Option<VAN> {
+    match x {
+        ASTNode::Grouped(_, ref elems) => Some(elems.clone()),
+        _ => None,
+    }
+}
+
 static BUILTINS: phf::Map<&'static str, (Option<usize>, BuiltInFn)> = define_bltins! {
     "add" => (args | 2) {
         let unpacked = args.into_iter().filter_map(|x| Some(x
@@ -126,48 +137,46 @@ static BUILTINS: phf::Map<&'static str, (Option<usize>, BuiltInFn)> = define_blt
             .expect("expected number as @param"))).collect::<Vec<_>>();
         if unpacked.len() != 2 {
             // if any argument wasn't evaluated --> dropped --> different len()
-            return None;
+            None
+        } else {
+            Some(ASTNode::Constant(true, (unpacked[0] + unpacked[1]).to_string().into()))
         }
-        Some(ASTNode::Constant(true, (unpacked[0] + unpacked[1]).to_string().into()))
     },
     "def" => (args, ctx) {
-        if args.len() < 3 {
-            return None;
+        if args.len() >= 3 {
+            let varname = unpack(&mut args[0], ctx)?;
+            let argc: usize = unpack(&mut args[1], ctx)?
+                .parse()
+                .expect("expected number as argc");
+            let mut value = args[2..].to_vec().lift_ast();
+            if value.eval(ctx) {
+                ctx.defs
+                    .insert(varname, (argc, value.simplify()));
+                return Some(ASTNode::NullNode);
+            }
         }
-        let varname = unpack(&mut args[0], ctx)?;
-        let argc: usize = unpack(&mut args[1], ctx)?
-            .parse()
-            .expect("expected number as argc");
-        let mut value = args[2..].to_vec().lift_ast();
-        if value.eval(ctx) {
-            ctx.defs
-                .insert(varname, (argc, value.simplify()));
-            Some(ASTNode::NullNode)
-        } else {
-            None
-        }
+        None
     },
     "def-lazy" => (args, ctx) {
         if args.len() < 3 {
-            return None;
+            None
+        } else {
+            let varname = unpack(&mut args[0], ctx)?;
+            let argc: usize = unpack(&mut args[1], ctx)?
+                .parse()
+                .expect("expected number as argc");
+            ctx.defs
+                .insert(varname, (argc, args[2..].to_vec().lift_ast().simplify()));
+            Some(ASTNode::NullNode)
         }
-        let varname = unpack(&mut args[0], ctx)?;
-        let argc: usize = unpack(&mut args[1], ctx)?
-            .parse()
-            .expect("expected number as argc");
-        ctx.defs
-            .insert(varname, (argc, args[2..].to_vec().lift_ast().simplify()));
-        Some(ASTNode::NullNode)
     },
     "foreach" => (args | 2, mut ctx) {
         {
             let x = &mut args[0];
             x.eval(ctx);
         }
-        let elems = CmdEvalArgs::from_wsdelim(match &args[0] {
-            ASTNode::Grouped(_, ref elems) => Some(elems),
-            _ => None,
-        }?.clone()).into_iter().map(|i| if let ASTNode::Grouped(_, tmp_args) = i {
+        let elems = CmdEvalArgs::from_wsdelim(fe_elems(&args[0])?).into_iter()
+        .map(|i| if let ASTNode::Grouped(_, tmp_args) = i {
             CmdEvalArgs::from_wsdelim(tmp_args)
         } else {
             CmdEvalArgs(i.lift_ast())
@@ -179,10 +188,8 @@ static BUILTINS: phf::Map<&'static str, (Option<usize>, BuiltInFn)> = define_blt
             let x = &mut args[0];
             x.eval(ctx);
         }
-        let mut elems = match &args[0] {
-            ASTNode::Grouped(_, ref elems) => Some(elems),
-            _ => None,
-        }?.clone().into_iter().map(|i| CmdEvalArgs(if let ASTNode::Grouped(_, tmp_args) = i {
+        let mut elems = fe_elems(&args[0])?.into_iter()
+        .map(|i| CmdEvalArgs(if let ASTNode::Grouped(_, tmp_args) = i {
             tmp_args
         } else {
             i.lift_ast()
@@ -229,21 +236,12 @@ static BUILTINS: phf::Map<&'static str, (Option<usize>, BuiltInFn)> = define_blt
     },
     "une" => (args) {
         // un-escape
-        Some(args.into_iter().map(|mut x| {
-            if let ASTNode::Grouped(ref mut gt, _) = x {
-                *gt = GroupType::Dissolving;
-            }
-            x
-        }).collect::<Vec<_>>().lift_ast())
+        Some(args.into_iter().map(uneg).collect::<Vec<_>>().lift_ast())
     },
     "unee" => (args) {
         // un-escape for eval
-        Some(CmdEvalArgs::from_wsdelim(args.into_iter().map(|mut x| {
-            if let ASTNode::Grouped(ref mut gt, _) = x {
-                *gt = GroupType::Dissolving;
-            }
-            x
-        }).collect::<Vec<_>>().simplify()).0.lift_ast())
+        Some(CmdEvalArgs::from_wsdelim(args.into_iter().map(uneg)
+            .collect::<Vec<_>>().simplify()).0.lift_ast())
     },
 };
 

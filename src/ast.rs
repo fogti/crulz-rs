@@ -60,19 +60,19 @@ impl ASTNode {
     }
 
     pub(crate) fn conv_to_constant(&self) -> Option<Atom> {
-        Some(match self {
-            ASTNode::Constant(_, x) => x.clone(),
+        match self {
+            ASTNode::Constant(_, x) => Some(x.clone()),
             ASTNode::Grouped(gt, x) if *gt != GroupType::Strict => {
                 let mut impc = x.iter().map(ASTNode::conv_to_constant);
                 if x.len() == 1 {
-                    impc.next().unwrap()?
+                    impc.next().unwrap()
                 } else {
-                    impc.try_fold(String::new(), |acc, i| Some(acc + i.as_ref()?))?
-                        .into()
+                    impc.try_fold(String::new(), |acc, i| i.as_ref().map(|j| acc + j))
+                        .map(<_>::into)
                 }
             }
-            _ => return None,
-        })
+            _ => None,
+        }
     }
 }
 
@@ -134,8 +134,8 @@ impl CmdEvalArgs {
         args.into_iter()
             .group_by(ASTNode::is_space)
             .into_iter()
-            .filter(|(d, _)| !*d)
-            .map(|(_, i)| i.collect::<VAN>().lift_ast().simplify())
+            .filter(|x| !x.0)
+            .map(|x| x.1.collect::<VAN>().lift_ast().simplify())
             .collect()
     }
 }
