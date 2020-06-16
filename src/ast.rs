@@ -1,7 +1,6 @@
 use delegate_attr::delegate;
 use serde::{Deserialize, Serialize};
-
-pub type Atom = crate::crulst::CrulzAtom;
+use std::borrow::Cow;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum GroupType {
@@ -15,7 +14,7 @@ pub enum ASTNode {
     NullNode,
 
     /// Constant: is_non_space, data
-    Constant(bool, Atom),
+    Constant(bool, bstr::BString),
 
     /// Argument: indirection (= (count of '$'s) - 1), index
     /// no given index means something like '$$.'
@@ -52,23 +51,32 @@ impl ASTNode {
     }
 
     #[inline(always)]
-    pub(crate) fn as_constant(&self) -> Option<&Atom> {
+    pub(crate) fn as_constant(&self) -> Option<&[u8]> {
         match self {
-            Constant(_, ref x) => Some(x),
+            Constant(_, ref x) => Some(x.as_slice()),
             _ => None,
         }
     }
 
-    pub(crate) fn conv_to_constant(&self) -> Option<Atom> {
+    pub(crate) fn conv_to_constant(&self) -> Option<Cow<'_, [u8]>> {
         match self {
-            ASTNode::Constant(_, x) => Some(x.clone()),
+            ASTNode::Constant(_, ref x) => Some((&**x).into()),
             ASTNode::Grouped(gt, x) if *gt != GroupType::Strict => {
                 let mut impc = x.iter().map(ASTNode::conv_to_constant);
                 if x.len() == 1 {
                     impc.next().unwrap()
+                } else if impc.clone().any(|i| i.is_none()) {
+                    None
                 } else {
-                    impc.try_fold(String::new(), |acc, i| i.as_ref().map(|j| acc + j))
-                        .map(<_>::into)
+                    let impc: Vec<_> = impc.map(Option::unwrap).collect();
+                    Some(
+                        impc.iter()
+                            .map(|i| i.as_ref())
+                            .flatten()
+                            .copied()
+                            .collect::<Vec<_>>()
+                            .into(),
+                    )
                 }
             }
             _ => None,
@@ -141,6 +149,7 @@ impl CmdEvalArgs {
 }
 
 #[delegate(self.0)]
+#[rustfmt::skip]
 impl CmdEvalArgs {
     pub fn iter(&self) -> std::slice::Iter<ASTNode> { }
     pub fn iter_mut(&mut self) -> std::slice::IterMut<ASTNode> { }
@@ -157,15 +166,15 @@ mod tests {
         use ASTNode::*;
         assert_eq!(
             CmdEvalArgs::from_wsdelim(vec![
-                Constant(true, "a".into()),
-                Constant(false, "a".into()),
-                Constant(true, "a".into()),
-                Constant(true, "a".into()),
-                Constant(false, "a".into())
+                Constant(true, b"a".to_vec()),
+                Constant(false, b"a".to_vec()),
+                Constant(true, b"a".to_vec()),
+                Constant(true, b"a".to_vec()),
+                Constant(false, b"a".to_vec())
             ]),
             CmdEvalArgs(vec![
-                Constant(true, "a".into()),
-                Constant(true, "aa".into())
+                Constant(true, b"a".to_vec()),
+                Constant(true, b"aa".to_vec())
             ])
         );
     }

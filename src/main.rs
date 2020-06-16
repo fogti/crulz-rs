@@ -113,20 +113,23 @@ fn main() {
         if escc_aso == None || chx.next() != None {
             panic!("invalid escc argument");
         }
-        escc_aso.unwrap()
+        let mut b = [0u8; 1];
+        escc_aso.unwrap().encode_utf8(&mut b);
+        b[0]
     };
 
     let escc_pass = matches.is_present("pass-escc");
     let vblvl = matches.occurrences_of("v");
     let print_timings = matches.is_present("timings");
 
-    let input_file = matches.value_of("INPUT").unwrap().to_owned();
+    let input_file = matches.value_of_os("INPUT").unwrap().to_owned();
     let opts = parser::ParserOptions::new(escc, escc_pass);
 
     let mut trs = timing_of!(
         print_timings,
         parser::file2ast,
-        parser::file2ast(&input_file, opts).expect("failed to parse input file")
+        parser::file2ast(std::path::Path::new(&input_file), opts)
+            .expect("failed to parse input file")
     );
 
     if vblvl > 1 {
@@ -169,7 +172,11 @@ fn main() {
     }
 
     if !matches.is_present("quiet") {
-        print!("{}", trs.to_str(escc));
-        io::stdout().flush().expect("unable to flush result");
+        let stdout = io::stdout();
+        let mut stdout = stdout.lock();
+        stdout
+            .write_all(&*trs.to_vec(escc))
+            .expect("unable to write result");
+        stdout.flush().expect("unable to flush result");
     }
 }

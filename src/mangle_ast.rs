@@ -5,7 +5,7 @@ use itertools::Itertools;
 // do NOT "use ASTNode::*;" here, because sometimes we want to "use ASTNodeClass::*;"
 
 pub trait MangleAST: Default {
-    fn to_str(self, escc: char) -> String;
+    fn to_vec(self, escc: u8) -> Vec<u8>;
 
     /// helper for MangleAST::simplify and interp::eval
     fn get_complexity(&self) -> usize;
@@ -30,30 +30,42 @@ pub trait MangleAST: Default {
 }
 
 impl MangleAST for ASTNode {
-    fn to_str(self, escc: char) -> String {
+    fn to_vec(self, escc: u8) -> Vec<u8> {
         use ASTNode::*;
         match self {
-            NullNode => String::new(),
-            Constant(_, x) => x.to_string(),
+            NullNode => Vec::new(),
+            Constant(_, x) => x.into(),
             Grouped(gt, elems) => {
-                let inner = elems.to_str(escc);
+                let inner = elems.to_vec(escc);
                 if gt == GroupType::Strict {
-                    format!("({})", inner)
+                    [b"(", &inner[..], b")"]
+                        .iter()
+                        .flat_map(|i| *i)
+                        .copied()
+                        .collect()
                 } else {
                     inner
                 }
             }
-            Argument { indirection, index } => std::iter::repeat('$')
+            Argument { indirection, index } => std::iter::repeat(b'$')
                 .take(indirection + 1)
                 .chain(
                     index
                         .as_ref()
                         .map(usize::to_string)
                         .iter()
-                        .flat_map(|i| i.chars()),
+                        .flat_map(|i| i.bytes()),
                 )
                 .collect(),
-            CmdEval(cmd, args) => format!("{}({}{})", escc, cmd.to_str(escc), args.to_str(escc)),
+            CmdEval(cmd, args) => {
+                let mut ret = Vec::new();
+                ret.push(escc);
+                ret.push(b'(');
+                ret.extend_from_slice(&cmd.to_vec(escc)[..]);
+                ret.extend_from_slice(&args.to_vec(escc)[..]);
+                ret.push(b')');
+                ret
+            }
         }
     }
 
@@ -84,6 +96,7 @@ impl MangleAST for ASTNode {
                         0 => {
                             if *gt != GroupType::Strict {
                                 self = NullNode;
+                                break;
                             }
                         }
                         1 => {
@@ -127,7 +140,7 @@ impl MangleAST for ASTNode {
                         Some(x) => x.clone(),
                         None => return Err(index),
                     },
-                    None => Constant(true, crulst_atom!("$")),
+                    None => Constant(true, vec![b'$'].into()),
                 };
             }
             Argument {
@@ -147,9 +160,12 @@ impl MangleAST for ASTNode {
 }
 
 impl MangleAST for VAN {
-    fn to_str(self, escc: char) -> String {
+    fn to_vec(self, escc: u8) -> Vec<u8> {
         self.into_iter()
-            .fold(String::new(), |acc, i| acc + &i.to_str(escc))
+            .map(|i| i.to_vec(escc))
+            .intersperse(vec![b' '])
+            .flatten()
+            .collect()
     }
 
     #[inline]
@@ -186,15 +202,14 @@ impl MangleAST for VAN {
                 match d {
                     ASTNodeClass::Constant(x) => Constant(
                         x,
-                        i.map(|j| {
+                        i.flat_map(|j| {
                             if let Constant(_, y) = j {
-                                y
+                                Vec::from(y)
                             } else {
                                 unreachable!()
                             }
                         })
-                        .fold(String::new(), |acc, i| acc + &i)
-                        .into(),
+                        .collect(),
                     )
                     .lift_ast(),
                     ASTNodeClass::Grouped(GroupType::Dissolving) => i
@@ -221,10 +236,14 @@ impl MangleAST for VAN {
 }
 
 impl MangleAST for CmdEvalArgs {
-    fn to_str(self, escc: char) -> String {
-        self.0
-            .into_iter()
-            .fold(String::new(), |acc, i| acc + " " + &i.to_str(escc))
+    fn to_vec(self, escc: u8) -> Vec<u8> {
+        if self.0.is_empty() {
+            Vec::new()
+        } else {
+            let mut ret = vec![b' '];
+            ret.extend_from_slice(&self.0.to_vec(escc)[..]);
+            ret
+        }
     }
 
     fn simplify(self) -> Self {
@@ -241,10 +260,10 @@ impl MangleAST for CmdEvalArgs {
     }
 
     #[delegate(self.0)]
-    fn get_complexity(&self) -> usize { }
+    fn get_complexity(&self) -> usize {}
 
     #[delegate(self.0)]
-    fn apply_arguments_inplace(&mut self, args: &CmdEvalArgs) -> Result<(), usize> { }
+    fn apply_arguments_inplace(&mut self, args: &CmdEvalArgs) -> Result<(), usize> {}
 }
 
 pub trait MangleASTExt: MangleAST {
@@ -265,16 +284,17 @@ impl MangleASTExt for VAN {
             // 2. aggressive concat constant-after-constants
             .peekable()
             .batching(|it| {
-                let (mut risp, mut rdat) = match it.next()? {
-                    ASTNode::Constant(isp, dat) => (isp, dat.to_string()),
-                    x => return Some(x),
-                };
-                while let Some(ASTNode::Constant(isp, ref dat)) = it.peek() {
-                    risp |= isp;
-                    rdat += &dat;
-                    it.next();
-                }
-                Some(ASTNode::Constant(risp, rdat.into()))
+                Some(match it.next()? {
+                    ASTNode::Constant(mut risp, mut rdat) => {
+                        while let Some(ASTNode::Constant(isp, ref dat)) = it.peek() {
+                            risp |= isp;
+                            rdat.extend_from_slice(&dat[..]);
+                            it.next();
+                        }
+                        ASTNode::Constant(risp, rdat.into())
+                    }
+                    x => x,
+                })
             })
             .collect()
     }
@@ -288,28 +308,28 @@ mod tests {
     #[test]
     fn test_simplify() {
         let ast = vec![
-            Constant(true, "a".into()),
-            Constant(true, "b".into())
+            Constant(true, b"a".to_vec()),
+            Constant(true, b"b".to_vec())
                 .lift_ast()
                 .lift_ast()
                 .lift_ast()
                 .lift_ast(),
-            Constant(true, "c".into()),
+            Constant(true, b"c".to_vec()),
         ]
         .lift_ast()
         .lift_ast()
         .lift_ast();
-        assert_eq!(ast.simplify(), Constant(true, "abc".into()));
+        assert_eq!(ast.simplify(), Constant(true, b"abc".to_vec()));
     }
 
     #[test]
     fn test_compact_tl() {
         let ast = vec![
-            Constant(true, "a".into()),
-            Constant(false, "b".into()),
-            Constant(true, "c".into()),
+            Constant(true, b"a".to_vec()),
+            Constant(false, b"b".to_vec()),
+            Constant(true, b"c".to_vec()),
         ]
         .compact_toplevel();
-        assert_eq!(ast, vec![Constant(true, "abc".into())]);
+        assert_eq!(ast, vec![Constant(true, b"abc".to_vec())]);
     }
 }

@@ -1,18 +1,18 @@
 [package]
 name = "crulz"
 description = "a rust implementation of the 'crulz' macro language interpreter"
-version = "0.0.7"
+version = "0.1.0"
 authors = ["Erik Zscheile <zseri.devel@ytrizja.de>"]
 edition = "2018"
 exclude = ["docs/bench_results*.txt","*.sh"]
 repository = "https://github.com/zserik/crulz-rs"
 license = "Apache-2.0"
-build = "build.rs"
 
 [dependencies]
 ansi_term = "0.12"
 anyhow = "1.0"
 bincode = { version = "1.2", optional = true }
+bstr = { version = "0.2", features = ["serde1"] }
 cfg-if = "0.1"
 clap = "2.33"
 codespan = "0.9"
@@ -23,11 +23,9 @@ itertools = "0.9"
 phf = { version = "0.8", features = ["macros"] }
 readfilez = "0.2"
 serde = { version = "1.0", features = ["derive"] }
-string_cache = "0.8"
 thiserror = "1.0"
-
-[build-dependencies]
-string_cache_codegen = "0.5"
+atoi = "0.3.2"
+termcolor = "1.1.0"
 
 [features]
 compile = [ "bincode", "flate2" ]

@@ -1,10 +1,11 @@
 use crate::{
-    ast::{ASTNode, Atom, CmdEvalArgs, GroupType, LiftAST, VAN},
+    ast::{ASTNode, CmdEvalArgs, GroupType, LiftAST, VAN},
     mangle_ast::MangleAST,
     parser::ParserOptions,
 };
 #[cfg(feature = "compile")]
 use anyhow::Context;
+use atoi::atoi;
 use cfg_if::cfg_if;
 use phf::phf_map;
 use std::collections::hash_map::HashMap;
@@ -14,8 +15,8 @@ enum BuiltInFn {
     Automatic(fn(VAN) -> Option<ASTNode>),
 }
 
-type DefinesMap = HashMap<Atom, (usize, ASTNode)>;
-type CompilatesMap<'a> = HashMap<&'a str, &'a str>;
+type DefinesMap = HashMap<Vec<u8>, (usize, ASTNode)>;
+type CompilatesMap<'a> = HashMap<&'a [u8], &'a [u8]>;
 
 struct EvalContext<'a> {
     defs: DefinesMap,
@@ -86,21 +87,21 @@ fn eval_foreach(
 }
 
 macro_rules! define_blti {
-    (($args:pat | $ac:expr, $ctx:pat) $body:tt) => {{
-        fn blti($args: &mut VAN, $ctx: &mut EvalContext<'_>) -> Option<ASTNode> $body
-        (Some($ac), BuiltInFn::Manual(blti))
+    (($args:pat | $ac:expr, $ctx:pat) $body:ident) => {{
+        /* fn blti($args: &mut VAN, $ctx: &mut EvalContext<'_>) -> Option<ASTNode> $body */
+        (Some($ac), BuiltInFn::Manual($body))
     }};
-    (($args:pat | $ac:expr) $body:tt) => {{
-        fn blti($args: VAN) -> Option<ASTNode> $body
-        (Some($ac), BuiltInFn::Automatic(blti))
+    (($args:pat | $ac:expr) $body:ident) => {{
+        /* fn blti($args: VAN) -> Option<ASTNode> $body */
+        (Some($ac), BuiltInFn::Automatic($body))
     }};
-    (($args:pat, $ctx:pat) $body:tt) => {{
-        fn blti($args: &mut VAN, $ctx: &mut EvalContext<'_>) -> Option<ASTNode> $body
-        (None, BuiltInFn::Manual(blti))
+    (($args:pat, $ctx:pat) $body:ident) => {{
+        /* fn blti($args: &mut VAN, $ctx: &mut EvalContext<'_>) -> Option<ASTNode> $body */
+        (None, BuiltInFn::Manual($body))
     }};
-    (($args:pat) $body:tt) => {{
-        fn blti($args: VAN) -> Option<ASTNode> $body
-        (None, BuiltInFn::Automatic(blti))
+    (($args:pat) $body:ident) => {{
+        /* fn blti($args: VAN) -> Option<ASTNode> $body */
+        (None, BuiltInFn::Automatic($body))
     }};
 }
 
@@ -110,9 +111,9 @@ macro_rules! define_bltins {
     }
 }
 
-fn unpack(x: &mut ASTNode, ctx: &mut EvalContext<'_>) -> Option<crate::crulst::CrulzAtom> {
+fn unpack(x: &mut ASTNode, ctx: &mut EvalContext<'_>) -> Option<Vec<u8>> {
     x.eval(ctx);
-    x.conv_to_constant()
+    x.conv_to_constant().map(|y| y.into_owned())
 }
 
 fn uneg(mut arg: ASTNode) -> ASTNode {
@@ -129,121 +130,126 @@ fn fe_elems(x: &ASTNode) -> Option<VAN> {
     }
 }
 
-static BUILTINS: phf::Map<&'static str, (Option<usize>, BuiltInFn)> = define_bltins! {
-    "add" => (args | 2) {
-        let unpacked = args.into_iter().filter_map(|x| Some(x
-            .as_constant()?
-            .parse::<i64>()
-            .expect("expected number as @param"))).collect::<Vec<_>>();
-        if unpacked.len() != 2 {
-            // if any argument wasn't evaluated --> dropped --> different len()
-            None
-        } else {
-            Some(ASTNode::Constant(true, (unpacked[0] + unpacked[1]).to_string().into()))
-        }
-    },
-    "def" => (args, ctx) {
-        if args.len() >= 3 {
-            let varname = unpack(&mut args[0], ctx)?;
-            let argc: usize = unpack(&mut args[1], ctx)?
-                .parse()
-                .expect("expected number as argc");
-            let mut value = args[2..].to_vec().lift_ast();
-            if value.eval(ctx) {
-                ctx.defs
-                    .insert(varname, (argc, value.simplify()));
-                return Some(ASTNode::NullNode);
-            }
-        }
-        None
-    },
-    "def-lazy" => (args, ctx) {
-        if args.len() < 3 {
-            None
-        } else {
-            let varname = unpack(&mut args[0], ctx)?;
-            let argc: usize = unpack(&mut args[1], ctx)?
-                .parse()
-                .expect("expected number as argc");
-            ctx.defs
-                .insert(varname, (argc, args[2..].to_vec().lift_ast().simplify()));
-            Some(ASTNode::NullNode)
-        }
-    },
-    "foreach" => (args | 2, mut ctx) {
-        {
-            let x = &mut args[0];
-            x.eval(ctx);
-        }
-        let elems = CmdEvalArgs::from_wsdelim(fe_elems(&args[0])?).into_iter()
-        .map(|i| if let ASTNode::Grouped(_, tmp_args) = i {
-            CmdEvalArgs::from_wsdelim(tmp_args)
-        } else {
-            CmdEvalArgs(i.lift_ast())
-        });
-        eval_foreach(elems, &args[1], ctx)
-    },
-    "foreach-raw" => (args | 2, mut ctx) {
-        {
-            let x = &mut args[0];
-            x.eval(ctx);
-        }
-        let mut elems = fe_elems(&args[0])?.into_iter()
-        .map(|i| CmdEvalArgs(if let ASTNode::Grouped(_, tmp_args) = i {
+static BUILTINS: phf::Map<&'static [u8], (Option<usize>, BuiltInFn)> = define_bltins! {
+    b"add"         => (args | 2     ) blti_add,
+    b"def"         => (args    , ctx) blti_def,
+    b"def-lazy"    => (args    , ctx) blti_def_lazy,
+    b"foreach"     => (args | 2, ctx) blti_foreach,
+    b"foreach-raw" => (args | 2, ctx) blti_foreach_raw,
+    b"fseq"        => (args    , ctx) blti_fseq,
+    b"include"     => (args | 1, ctx) blti_include,
+    b"pass"        => (args         ) blti_pass,
+    b"suppress"    => (_args        ) blti_suppress,
+    b"undef"       => (args | 1, ctx) blti_undef,
+    b"une"         => (args         ) blti_une,
+    b"unee"        => (args         ) blti_unee,
+};
+
+fn blti_suppress(_args: VAN) -> Option<ASTNode> {
+    Some(ASTNode::NullNode)
+}
+fn blti_une(args: VAN) -> Option<ASTNode> {
+    Some(args.into_iter().map(uneg).collect::<Vec<_>>().lift_ast())
+}
+fn blti_pass(args: VAN) -> Option<ASTNode> {
+    Some(args.lift_ast())
+}
+fn blti_include(args: &mut VAN, ctx: &mut EvalContext<'_>) -> Option<ASTNode> {
+    args[0].eval(ctx);
+    let filename = args[0].conv_to_constant()?;
+    let filename: &str = std::str::from_utf8(&filename).expect("got invalid include filename");
+    Some(
+        { crate::parser::file2ast(filename.as_ref(), ctx.opts) }
+            .expect("expected valid file")
+            .lift_ast(),
+    )
+}
+fn blti_foreach_raw(args: &mut VAN, ctx: &mut EvalContext<'_>) -> Option<ASTNode> {
+    {
+        let x = &mut args[0];
+        x.eval(ctx);
+    }
+    let elems = fe_elems(&args[0])?.into_iter().map(|i| {
+        CmdEvalArgs(if let ASTNode::Grouped(_, tmp_args) = i {
             tmp_args
         } else {
             i.lift_ast()
-        }));
-        eval_foreach(elems, &args[1], ctx)
-    },
-    "fseq" => (mut args, ctx) {
-        // force sequential evaluation
-        if args.iter_mut().all(|i| i.eval(ctx)) {
-            Some(args.take().lift_ast())
-        } else {
-            None
-        }
-    },
-    "include" => (args | 1, ctx) {
-        args[0].eval(ctx);
-        let filename = args[0].conv_to_constant()?;
-        let filename: &str = &filename;
-        Some(
-            { cfg_if! {
-                if #[cfg(feature = "compile")] {
-                    match ctx.comp_map.get(filename) {
-                        None => crate::parser::file2ast(filename, ctx.opts),
-                        Some(compf) => ctx.load_from_compfile(compf),
-                    }
-                } else {
-                    crate::parser::file2ast(filename, ctx.opts)
-                }
-            }}.expect("expected valid file").lift_ast()
-        )
-    },
-    "pass" => (args) {
-        Some(args.lift_ast())
-    },
-    "suppress" => (_args) {
-        // suppress all direct output from the code section, but evaluate it
-        Some(ASTNode::NullNode)
-    },
-    "undef" => (args | 1, ctx) {
+        })
+    });
+    eval_foreach(elems, &args[1], ctx)
+}
+fn blti_foreach(args: &mut VAN, ctx: &mut EvalContext<'_>) -> Option<ASTNode> {
+    {
+        let x = &mut args[0];
+        x.eval(ctx);
+    }
+    let elems = CmdEvalArgs::from_wsdelim(fe_elems(&args[0])?)
+        .into_iter()
+        .map(|i| {
+            if let ASTNode::Grouped(_, tmp_args) = i {
+                CmdEvalArgs::from_wsdelim(tmp_args)
+            } else {
+                CmdEvalArgs(i.lift_ast())
+            }
+        });
+    eval_foreach(elems, &args[1], ctx)
+}
+fn blti_unee(args: VAN) -> Option<ASTNode> {
+    Some(
+        CmdEvalArgs::from_wsdelim(args.into_iter().map(uneg).collect::<Vec<_>>().simplify())
+            .0
+            .lift_ast(),
+    )
+}
+fn blti_def_lazy(args: &mut VAN, ctx: &mut EvalContext<'_>) -> Option<ASTNode> {
+    if args.len() < 3 {
+        None
+    } else {
         let varname = unpack(&mut args[0], ctx)?;
+        let argc: usize = atoi(&unpack(&mut args[1], ctx)?).expect("expected number as argc");
         ctx.defs
-            .remove(&varname);
+            .insert(varname, (argc, args[2..].to_vec().lift_ast().simplify()));
         Some(ASTNode::NullNode)
-    },
-    "une" => (args) {
-        // un-escape
-        Some(args.into_iter().map(uneg).collect::<Vec<_>>().lift_ast())
-    },
-    "unee" => (args) {
-        // un-escape for eval
-        Some(CmdEvalArgs::from_wsdelim(args.into_iter().map(uneg)
-            .collect::<Vec<_>>().simplify()).0.lift_ast())
-    },
-};
+    }
+}
+fn blti_def(args: &mut VAN, ctx: &mut EvalContext<'_>) -> Option<ASTNode> {
+    if args.len() >= 3 {
+        let varname = unpack(&mut args[0], ctx)?;
+        let argc: usize = atoi(&unpack(&mut args[1], ctx)?).expect("expected number as argc");
+        let mut value = args[2..].to_vec().lift_ast();
+        if value.eval(ctx) {
+            ctx.defs.insert(varname, (argc, value.simplify()));
+            return Some(ASTNode::NullNode);
+        }
+    }
+    None
+}
+fn blti_add(args: VAN) -> Option<ASTNode> {
+    let unpacked = args
+        .into_iter()
+        .filter_map(|x| Some(atoi::<i64>(x.as_constant()?).expect("expected number as @param")))
+        .collect::<Vec<_>>();
+    if unpacked.len() != 2 {
+        None
+    } else {
+        Some(ASTNode::Constant(
+            true,
+            (unpacked[0] + unpacked[1]).to_string().into(),
+        ))
+    }
+}
+fn blti_fseq(args: &mut VAN, ctx: &mut EvalContext<'_>) -> Option<ASTNode> {
+    if args.iter_mut().all(|i| i.eval(ctx)) {
+        Some(args.take().lift_ast())
+    } else {
+        None
+    }
+}
+fn blti_undef(args: &mut VAN, ctx: &mut EvalContext<'_>) -> Option<ASTNode> {
+    let varname = unpack(&mut args[0], ctx)?;
+    ctx.defs.remove(&varname);
+    Some(ASTNode::NullNode)
+}
 
 fn eval_cmd(cmd: &mut VAN, args: &mut CmdEvalArgs, mut ctx: &mut EvalContext) -> Option<ASTNode> {
     use crate::mangle_ast::MangleASTExt;
@@ -260,7 +266,7 @@ fn eval_cmd(cmd: &mut VAN, args: &mut CmdEvalArgs, mut ctx: &mut EvalContext) ->
     };
 
     // evaluate command
-    if let Some((a, x)) = BUILTINS.get(&*cmd) {
+    if let Some((a, x)) = BUILTINS.get(&**cmd) {
         match a {
             Some(n) if args.len() != *n => None,
             _ => match x {
@@ -274,7 +280,7 @@ fn eval_cmd(cmd: &mut VAN, args: &mut CmdEvalArgs, mut ctx: &mut EvalContext) ->
             },
         }
     } else {
-        let (n, mut x) = ctx.defs.get(&cmd)?.clone();
+        let (n, mut x) = ctx.defs.get(&*cmd)?.clone();
         *args = CmdEvalArgs(
             args.take()
                 .into_iter()
