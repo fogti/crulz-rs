@@ -142,10 +142,10 @@ impl CmdEvalArgs {
 
 #[delegate(self.0)]
 impl CmdEvalArgs {
-    pub fn iter(&self) -> std::slice::Iter<ASTNode>;
-    pub fn iter_mut(&mut self) -> std::slice::IterMut<ASTNode>;
-    pub fn len(&self) -> usize;
-    pub fn is_empty(&self) -> bool;
+    pub fn iter(&self) -> std::slice::Iter<ASTNode> { }
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<ASTNode> { }
+    pub fn len(&self) -> usize { }
+    pub fn is_empty(&self) -> bool { }
 }
 
 #[cfg(test)]

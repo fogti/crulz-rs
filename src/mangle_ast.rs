@@ -241,10 +241,10 @@ impl MangleAST for CmdEvalArgs {
     }
 
     #[delegate(self.0)]
-    fn get_complexity(&self) -> usize;
+    fn get_complexity(&self) -> usize { }
 
     #[delegate(self.0)]
-    fn apply_arguments_inplace(&mut self, args: &CmdEvalArgs) -> Result<(), usize>;
+    fn apply_arguments_inplace(&mut self, args: &CmdEvalArgs) -> Result<(), usize> { }
 }
 
 pub trait MangleASTExt: MangleAST {

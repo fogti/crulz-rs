@@ -1,7 +1,7 @@
 [package]
 name = "crulz"
 description = "a rust implementation of the 'crulz' macro language interpreter"
-version = "0.0.6"
+version = "0.0.7"
 authors = ["Erik Zscheile <zseri.devel@ytrizja.de>"]
 edition = "2018"
 exclude = ["docs/bench_results*.txt","*.sh"]
