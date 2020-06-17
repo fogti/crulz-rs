@@ -166,15 +166,15 @@ mod tests {
         use ASTNode::*;
         assert_eq!(
             CmdEvalArgs::from_wsdelim(vec![
-                Constant(true, b"a".to_vec()),
-                Constant(false, b"a".to_vec()),
-                Constant(true, b"a".to_vec()),
-                Constant(true, b"a".to_vec()),
-                Constant(false, b"a".to_vec())
+                Constant(true, b"a".to_vec().into()),
+                Constant(false, b"a".to_vec().into()),
+                Constant(true, b"a".to_vec().into()),
+                Constant(true, b"a".to_vec().into()),
+                Constant(false, b"a".to_vec().into())
             ]),
             CmdEvalArgs(vec![
-                Constant(true, b"a".to_vec()),
-                Constant(true, b"aa".to_vec())
+                Constant(true, b"a".to_vec().into()),
+                Constant(true, b"aa".to_vec().into())
             ])
         );
     }

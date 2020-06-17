@@ -174,56 +174,46 @@ impl MangleAST for VAN {
     }
 
     fn simplify(self) -> Self {
-        #[derive(PartialEq)]
-        enum ASTNodeClass {
-            NullNode,
-            Constant(bool),
-            Grouped(GroupType),
-            Opaque,
-        }
-
         self.into_iter()
             .map(|i| i.simplify())
-            .group_by(|i| {
-                use ASTNodeClass::*;
-                match i {
-                    ASTNode::Grouped(gt, x) if x.is_empty() && *gt != GroupType::Strict => NullNode,
-                    ASTNode::Constant(_, x) if x.is_empty() => NullNode,
-                    ASTNode::Constant(s, _) => Constant(*s),
-                    ASTNode::Grouped(s, _) => Grouped(*s),
-                    ASTNode::Argument { .. } | ASTNode::CmdEval(_, _) => Opaque,
-                    _ => NullNode,
-                }
+            .filter(|i| match i {
+                ASTNode::Grouped(gt, x) if x.is_empty() && *gt != GroupType::Strict => false,
+                ASTNode::Constant(_, x) if x.is_empty() => false,
+                ASTNode::Constant(_, _)
+                | ASTNode::Grouped(_, _)
+                | ASTNode::Argument { .. }
+                | ASTNode::CmdEval(_, _) => true,
+                ASTNode::NullNode => false,
             })
-            .into_iter()
-            .filter(|(d, _)| *d != ASTNodeClass::NullNode)
-            .flat_map(|(d, i)| {
+            .peekable()
+            .batching(|it| {
                 use ASTNode::*;
-                match d {
-                    ASTNodeClass::Constant(x) => Constant(
-                        x,
-                        i.flat_map(|j| {
-                            if let Constant(_, y) = j {
-                                Vec::from(y)
-                            } else {
-                                unreachable!()
+                let mut base = it.next()?;
+                match &mut base {
+                    Constant(gt, ref mut x) => {
+                        while let Some(Constant(gt2, ref y)) = it.peek() {
+                            if gt != gt2 {
+                                break;
                             }
-                        })
-                        .collect(),
-                    )
-                    .lift_ast(),
-                    ASTNodeClass::Grouped(GroupType::Dissolving) => i
-                        .flat_map(|j| {
-                            if let Grouped(_, x) = j {
-                                x
-                            } else {
-                                unreachable!()
+                            x.extend_from_slice(&y[..]);
+                            it.next();
+                        }
+                    }
+                    Grouped(GroupType::Dissolving, ref mut x) => {
+                        while let Some(Grouped(gt2, ref y)) = it.peek() {
+                            if *gt2 != GroupType::Dissolving {
+                                break;
                             }
-                        })
-                        .collect(),
-                    _ => i.collect(),
+                            x.extend_from_slice(&y[..]);
+                            it.next();
+                        }
+                        return Some(std::mem::take(x));
+                    }
+                    _ => {}
                 }
+                Some(base.lift_ast())
             })
+            .flatten()
             .collect()
     }
 
@@ -308,28 +298,28 @@ mod tests {
     #[test]
     fn test_simplify() {
         let ast = vec![
-            Constant(true, b"a".to_vec()),
-            Constant(true, b"b".to_vec())
+            Constant(true, b"a".to_vec().into()),
+            Constant(true, b"b".to_vec().into())
                 .lift_ast()
                 .lift_ast()
                 .lift_ast()
                 .lift_ast(),
-            Constant(true, b"c".to_vec()),
+            Constant(true, b"c".to_vec().into()),
         ]
         .lift_ast()
         .lift_ast()
         .lift_ast();
-        assert_eq!(ast.simplify(), Constant(true, b"abc".to_vec()));
+        assert_eq!(ast.simplify(), Constant(true, b"abc".to_vec().into()));
     }
 
     #[test]
     fn test_compact_tl() {
         let ast = vec![
-            Constant(true, b"a".to_vec()),
-            Constant(false, b"b".to_vec()),
-            Constant(true, b"c".to_vec()),
+            Constant(true, b"a".to_vec().into()),
+            Constant(false, b"b".to_vec().into()),
+            Constant(true, b"c".to_vec().into()),
         ]
         .compact_toplevel();
-        assert_eq!(ast, vec![Constant(true, b"abc".to_vec())]);
+        assert_eq!(ast, vec![Constant(true, b"abc".to_vec().into())]);
     }
 }
