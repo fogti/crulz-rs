@@ -1,4 +1,5 @@
 use crate::ast::{ASTNode, CmdEvalArgs, GroupType, LiftAST, VAN};
+use bstr::ByteSlice;
 use delegate_attr::delegate;
 use itertools::Itertools;
 
@@ -40,8 +41,7 @@ impl MangleAST for ASTNode {
                 if gt == GroupType::Strict {
                     [b"(", &inner[..], b")"]
                         .iter()
-                        .flat_map(|i| *i)
-                        .copied()
+                        .flat_map(|i| (*i).bytes())
                         .collect()
                 } else {
                     inner
@@ -161,11 +161,7 @@ impl MangleAST for ASTNode {
 
 impl MangleAST for VAN {
     fn to_vec(self, escc: u8) -> Vec<u8> {
-        self.into_iter()
-            .map(|i| i.to_vec(escc))
-            .intersperse(vec![b' '])
-            .flatten()
-            .collect()
+        self.into_iter().flat_map(|i| i.to_vec(escc)).collect()
     }
 
     #[inline]
@@ -227,13 +223,11 @@ impl MangleAST for VAN {
 
 impl MangleAST for CmdEvalArgs {
     fn to_vec(self, escc: u8) -> Vec<u8> {
-        if self.0.is_empty() {
-            Vec::new()
-        } else {
-            let mut ret = vec![b' '];
-            ret.extend_from_slice(&self.0.to_vec(escc)[..]);
-            ret
-        }
+        self.0.into_iter().fold(Vec::new(), |mut acc, i| {
+            acc.push(b' ');
+            acc.extend_from_slice(&i.to_vec(escc)[..]);
+            acc
+        })
     }
 
     fn simplify(self) -> Self {
