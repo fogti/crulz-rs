@@ -264,6 +264,14 @@ pub fn file2ast(filename: &std::path::Path, opts: ParserOptions) -> Result<VAN, 
     parse_toplevel(input, opts).map_err(|e| {
         use std::str::FromStr;
 
+        let start_pos = get_offset_of(input, e.offending);
+        let start_pos_origin = get_offset_of(input, e.origin);
+        let start_pos_origin = if start_pos == start_pos_origin {
+            None
+        } else {
+            Some(start_pos_origin)
+        };
+
         if let Ok(input) = std::str::from_utf8(input) {
             use codespan_reporting::{
                 diagnostic::{Diagnostic, Label},
@@ -272,8 +280,17 @@ pub fn file2ast(filename: &std::path::Path, opts: ParserOptions) -> Result<VAN, 
 
             let mut files = codespan::Files::new();
             let fileid = files.add(filename, input);
-            let start_pos = get_offset_of(input.as_bytes(), e.offending);
-            let start_pos_origin = get_offset_of(input.as_bytes(), e.origin);
+
+            let mut labels = vec![Label::primary(
+                fileid,
+                start_pos..(start_pos + e.offending.len()),
+            )];
+            if let Some(spo) = start_pos_origin {
+                labels.push(
+                    Label::secondary(fileid, spo..start_pos)
+                        .with_message("error origin / parsed prefix"),
+                );
+            }
 
             term::emit(
                 &mut term::termcolor::StandardStream::stderr(
@@ -284,10 +301,7 @@ pub fn file2ast(filename: &std::path::Path, opts: ParserOptions) -> Result<VAN, 
                 &files,
                 &Diagnostic::error()
                     .with_message(e.detail.to_string())
-                    .with_labels(vec![
-                        Label::primary(fileid, start_pos..(start_pos + e.offending.len())),
-                        Label::secondary(fileid, start_pos_origin..start_pos),
-                    ]),
+                    .with_labels(labels),
             )
             .unwrap();
         } else {
@@ -305,7 +319,6 @@ pub fn file2ast(filename: &std::path::Path, opts: ParserOptions) -> Result<VAN, 
                 filename.display()
             );
 
-            let start_pos = get_offset_of(input, e.offending);
             eprintln!(
                 "crulz: {}error{}: {}: {}..{}: {}{}",
                 x_bold.infix(x_red),
@@ -318,22 +331,24 @@ pub fn file2ast(filename: &std::path::Path, opts: ParserOptions) -> Result<VAN, 
             );
 
             eprintln!(
-                "crulz: snippet: {}: {}..{}: {:?}",
+                "\t{}: {}..{}: {:?}",
                 filename.display(),
                 start_pos,
                 start_pos + e.offending.len(),
                 <&bstr::BStr>::from(e.offending),
             );
 
-            eprintln!(
-                "{}crulz: {}note{}: {}: error origin is at offset {}{}",
-                x_bold.prefix(),
-                x_bold.infix(x_note),
-                x_note.infix(x_bold),
-                filename.display(),
-                get_offset_of(input, e.origin),
-                x_bold.suffix()
-            );
+            if let Some(spo) = start_pos_origin {
+                eprintln!(
+                    "{}crulz: {}note{}: {}: error origin is at offset {}{}",
+                    x_bold.prefix(),
+                    x_bold.infix(x_note),
+                    x_note.infix(x_bold),
+                    filename.display(),
+                    spo,
+                    x_bold.suffix()
+                );
+            }
         }
         anyhow::anyhow!("{}", e.detail)
     })
