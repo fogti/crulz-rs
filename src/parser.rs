@@ -1,4 +1,5 @@
 use crate::ast::{ASTNode, CmdEvalArgs, GroupType, VAN};
+use bstr::ByteSlice;
 
 // === parser options
 
@@ -76,7 +77,7 @@ fn is_scope_end(x: &u8) -> bool {
 
 /// 1. part while f(x) == true, then 2. part
 fn str_split_at_while(x: &[u8], f: impl FnMut(&u8) -> bool) -> (&[u8], &[u8]) {
-    x.split_at(x.iter().copied().take_while(f).count())
+    x.split_at(x.bytes().take_while(f).count())
 }
 
 /// escaped escape symbol or other escaped code: optional passthrough
