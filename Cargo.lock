@@ -156,7 +156,6 @@ dependencies = [
  "phf",
  "readfilez",
  "serde",
- "termcolor",
  "thiserror",
 ]
 

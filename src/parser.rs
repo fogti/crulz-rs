@@ -254,64 +254,6 @@ pub fn parse_toplevel(mut data: &[u8], opts: ParserOptions) -> Result<VAN, Parse
     Ok(ret)
 }
 
-fn print_error_nonutf8(
-    stdstream: &mut termcolor::StandardStreamLock,
-    filename: &std::path::Path,
-    input: &[u8],
-    e: &ParserError,
-) -> std::io::Result<()> {
-    use std::io::Write;
-    use termcolor::{Color, ColorSpec, WriteColor};
-    let (mut x_bold, mut color_red, mut x_note) =
-        (ColorSpec::new(), ColorSpec::new(), ColorSpec::new());
-    x_bold.set_bold(true);
-    color_red.set_fg(Some(Color::Red)).set_bold(true);
-    x_note.set_fg(Some(Color::Blue)).set_bold(true);
-    let (x_bold, color_red, x_note) = (x_bold, color_red, x_note);
-    stdstream.set_color(&x_bold)?;
-    write!(stdstream, "crulz: ")?;
-    stdstream.set_color(&color_red)?;
-    write!(stdstream, "error")?;
-    stdstream.set_color(&x_bold)?;
-    writeln!(
-        stdstream,
-        ": {}: file contains non-UTF-8 data",
-        filename.display()
-    )?;
-
-    stdstream.set_color(&x_bold)?;
-    write!(stdstream, "crulz: ")?;
-    stdstream.set_color(&color_red)?;
-    write!(stdstream, "error")?;
-    stdstream.set_color(&x_bold)?;
-    let start_pos = get_offset_of(input, e.offending);
-    writeln!(
-        stdstream,
-        ": {}: {}..{}: {}",
-        filename.display(),
-        start_pos,
-        start_pos + e.offending.len(),
-        e.detail
-    )?;
-
-    stdstream.set_color(&x_bold)?;
-    write!(stdstream, "crulz: ")?;
-    stdstream.set_color(&x_note)?;
-    write!(stdstream, "note")?;
-    stdstream.set_color(&x_bold)?;
-    let start_pos = get_offset_of(input, e.origin);
-    writeln!(
-        stdstream,
-        ": {}: error origin is at position {}",
-        filename.display(),
-        start_pos,
-    )?;
-
-    stdstream.reset()?;
-
-    Ok(())
-}
-
 pub fn file2ast(filename: &std::path::Path, opts: ParserOptions) -> Result<VAN, anyhow::Error> {
     use anyhow::Context;
 
@@ -321,12 +263,6 @@ pub fn file2ast(filename: &std::path::Path, opts: ParserOptions) -> Result<VAN, 
 
     parse_toplevel(input, opts).map_err(|e| {
         use std::str::FromStr;
-        let stdstream = termcolor::StandardStream::stderr(
-            codespan_reporting::term::ColorArg::from_str("auto")
-                .unwrap()
-                .into(),
-        );
-        let mut stdstream = stdstream.lock();
 
         if let Ok(input) = std::str::from_utf8(input) {
             use codespan_reporting::{
@@ -340,7 +276,10 @@ pub fn file2ast(filename: &std::path::Path, opts: ParserOptions) -> Result<VAN, 
             let start_pos_origin = get_offset_of(input.as_bytes(), e.origin);
 
             term::emit(
-                &mut stdstream,
+                &mut term::termcolor::StandardStream::stderr(
+                    term::ColorArg::from_str("auto").unwrap().into(),
+                )
+                .lock(),
                 &term::Config::default(),
                 &files,
                 &Diagnostic::error()
@@ -352,7 +291,49 @@ pub fn file2ast(filename: &std::path::Path, opts: ParserOptions) -> Result<VAN, 
             )
             .unwrap();
         } else {
-            print_error_nonutf8(&mut stdstream, filename, input, &e).unwrap();
+            use ansi_term::{Colour, Style};
+            let x_bold = Style::new().bold();
+            let x_red = x_bold.clone().fg(Colour::Red);
+            let x_warn = x_bold.clone().fg(Colour::Yellow);
+            let x_note = x_bold.clone().fg(Colour::Blue);
+
+            println!(
+                "{}crulz: {}warning{}: {}: file contains non-UTF-8 data",
+                x_bold.prefix(),
+                x_bold.infix(x_warn),
+                x_warn.infix(x_bold),
+                filename.display()
+            );
+
+            let start_pos = get_offset_of(input, e.offending);
+            eprintln!(
+                "crulz: {}error{}: {}: {}..{}: {}{}",
+                x_bold.infix(x_red),
+                x_red.infix(x_bold),
+                filename.display(),
+                start_pos,
+                start_pos + e.offending.len(),
+                e.detail,
+                x_bold.suffix(),
+            );
+
+            eprintln!(
+                "crulz: snippet: {}: {}..{}: {:?}",
+                filename.display(),
+                start_pos,
+                start_pos + e.offending.len(),
+                <&bstr::BStr>::from(e.offending),
+            );
+
+            eprintln!(
+                "{}crulz: {}note{}: {}: error origin is at offset {}{}",
+                x_bold.prefix(),
+                x_bold.infix(x_note),
+                x_note.infix(x_bold),
+                filename.display(),
+                get_offset_of(input, e.origin),
+                x_bold.suffix()
+            );
         }
         anyhow::anyhow!("{}", e.detail)
     })
