@@ -15,11 +15,11 @@ atoi = "0.3"
 bincode = { version = "1.2", optional = true }
 bstr = { version = "0.2", default-features = false, features = ["serde1", "std"] }
 cfg-if = "0.1"
-clap = "2.33"
 codespan = "0.9"
 codespan-reporting = "0.9"
 delegate-attr = "0.2"
 flate2 = { version = "1.0", optional = true }
+gumdrop = "0.8"
 itertools = "0.9"
 phf = { version = "0.8", features = ["macros"] }
 readfilez = "0.2"

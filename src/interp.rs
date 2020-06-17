@@ -8,7 +8,7 @@ use anyhow::Context;
 use atoi::atoi;
 use cfg_if::cfg_if;
 use phf::phf_map;
-use std::collections::hash_map::HashMap;
+use std::{collections::HashMap, path::Path};
 
 enum BuiltInFn {
     Manual(fn(&mut VAN, &mut EvalContext) -> Option<ASTNode>),
@@ -16,7 +16,7 @@ enum BuiltInFn {
 }
 
 type DefinesMap = HashMap<Vec<u8>, (usize, ASTNode)>;
-type CompilatesMap<'a> = HashMap<&'a [u8], &'a [u8]>;
+type CompilatesMap<'a> = HashMap<&'a Path, &'a Path>;
 
 struct EvalContext<'a> {
     defs: DefinesMap,
@@ -27,27 +27,35 @@ struct EvalContext<'a> {
 
 #[cfg(feature = "compile")]
 impl EvalContext<'_> {
-    fn load_from_compfile(&mut self, compf: &str) -> Result<VAN, anyhow::Error> {
+    fn load_from_compfile<P>(&mut self, compf: &P) -> Result<VAN, anyhow::Error>
+    where
+        P: AsRef<Path> + ?Sized,
+    {
+        let compf = compf.as_ref();
         let fh = readfilez::read_from_file(std::fs::File::open(compf))
-            .with_context(|| format!("Unable to open compfile '{}'", compf))?;
+            .with_context(|| format!("Unable to open compfile '{}'", compf.display()))?;
         let mut z = flate2::read::DeflateDecoder::new(fh.as_slice());
         let content: VAN = bincode::deserialize_from(&mut z)
-            .with_context(|| format!("Unable to read compfile '{}'", compf))?;
+            .with_context(|| format!("Unable to read compfile '{}'", compf.display()))?;
         let ins_defs: DefinesMap = bincode::deserialize_from(&mut z)
-            .with_context(|| format!("Unable to read compfile '{}'", compf))?;
+            .with_context(|| format!("Unable to read compfile '{}'", compf.display()))?;
         self.defs.extend(ins_defs.into_iter());
         Ok(content)
     }
 
     #[cold]
-    fn save_to_compfile(&self, compf: &str, content: &VAN) -> Result<(), anyhow::Error> {
+    fn save_to_compfile<P>(&self, compf: &P, content: &VAN) -> Result<(), anyhow::Error>
+    where
+        P: AsRef<Path> + ?Sized,
+    {
+        let compf = compf.as_ref();
         let fh = std::fs::File::create(compf)
-            .with_context(|| format!("Failed to create compfile '{}'", compf))?;
+            .with_context(|| format!("Failed to create compfile '{}'", compf.display()))?;
         let mut z = flate2::write::DeflateEncoder::new(fh, flate2::Compression::default());
         bincode::serialize_into(&mut z, content)
-            .with_context(|| format!("Failed to write compfile '{}'", compf))?;
+            .with_context(|| format!("Failed to write compfile '{}'", compf.display()))?;
         bincode::serialize_into(&mut z, &self.defs)
-            .with_context(|| format!("Failed to write compfile '{}'", compf))?;
+            .with_context(|| format!("Failed to write compfile '{}'", compf.display()))?;
         Ok(())
     }
 }
@@ -159,9 +167,20 @@ fn blti_include(args: &mut VAN, ctx: &mut EvalContext<'_>) -> Option<ASTNode> {
     let filename = args[0].conv_to_constant()?;
     let filename: &str = std::str::from_utf8(&filename).expect("got invalid include filename");
     Some(
-        { crate::parser::file2ast(filename.as_ref(), ctx.opts) }
-            .expect("expected valid file")
-            .lift_ast(),
+        {
+            cfg_if! {
+                if #[cfg(feature = "compile")] {
+                    match ctx.comp_map.get(Path::new(filename)) {
+                        None => crate::parser::file2ast(Path::new(filename), ctx.opts),
+                        Some(compf) => ctx.load_from_compfile(&compf),
+                    }
+                } else {
+                    crate::parser::file2ast(Path::new(filename), ctx.opts)
+                }
+            }
+        }
+        .expect("expected valid file")
+        .lift_ast(),
     )
 }
 fn blti_foreach_raw(args: &mut VAN, ctx: &mut EvalContext<'_>) -> Option<ASTNode> {
@@ -345,7 +364,7 @@ pub fn eval(
     data: &mut VAN,
     opts: ParserOptions,
     comp_map: &CompilatesMap<'_>,
-    comp_out: Option<&str>,
+    comp_out: Option<&std::path::Path>,
 ) {
     use crate::mangle_ast::MangleASTExt;
     let mut ctx = EvalContext {
