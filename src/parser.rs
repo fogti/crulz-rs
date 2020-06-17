@@ -10,7 +10,7 @@ pub struct ParserOptions {
 
 impl ParserOptions {
     #[inline]
-    pub fn new(escc: u8, pass_escc: bool) -> Self {
+    pub const fn new(escc: u8, pass_escc: bool) -> Self {
         Self { escc, pass_escc }
     }
 }

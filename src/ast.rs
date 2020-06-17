@@ -130,7 +130,7 @@ impl std::iter::FromIterator<ASTNode> for CmdEvalArgs {
     where
         T: IntoIterator<Item = ASTNode>,
     {
-        CmdEvalArgs(Vec::from_iter(iter))
+        Self(Vec::from_iter(iter))
     }
 }
 

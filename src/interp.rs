@@ -294,7 +294,7 @@ fn eval_cmd(cmd: &mut VAN, args: &mut CmdEvalArgs, mut ctx: &mut EvalContext) ->
                 })
                 .collect(),
         );
-        if args.len() != n || x.apply_arguments_inplace(&args).is_err() {
+        if args.len() != n || x.apply_arguments_inplace(args).is_err() {
             None
         } else {
             Some(x)

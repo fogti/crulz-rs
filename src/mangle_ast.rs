@@ -268,17 +268,15 @@ impl MangleASTExt for VAN {
             // 2. aggressive concat constant-after-constants
             .peekable()
             .batching(|it| {
-                Some(match it.next()? {
-                    ASTNode::Constant(mut risp, mut rdat) => {
-                        while let Some(ASTNode::Constant(isp, ref dat)) = it.peek() {
-                            risp |= isp;
-                            rdat.extend_from_slice(&dat[..]);
-                            it.next();
-                        }
-                        ASTNode::Constant(risp, rdat.into())
+                let mut ret = it.next()?;
+                if let ASTNode::Constant(ref mut risp, ref mut rdat) = &mut ret {
+                    while let Some(ASTNode::Constant(isp, ref dat)) = it.peek() {
+                        *risp |= isp;
+                        rdat.extend_from_slice(&dat[..]);
+                        it.next();
                     }
-                    x => x,
-                })
+                }
+                Some(ret)
             })
             .collect()
     }
