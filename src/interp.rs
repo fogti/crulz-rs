@@ -4,7 +4,7 @@ use crate::{
 };
 #[cfg(feature = "compile")]
 use anyhow::Context;
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, marker::PhantomData, path::Path};
 use {atoi::atoi, cfg_if::cfg_if, lazy_static::lazy_static};
 
 #[derive(Clone)]
@@ -28,11 +28,13 @@ type CompilatesMap<'a> = HashMap<&'a Path, &'a Path>;
 pub const SUPPORTS_COMPILATION: bool = std::cfg!(feature = "compile");
 
 pub struct EvalContext<'a> {
-    defs: DefinesMap,
-    procdefs: ProcDefinesMap,
-    opts: ParserOptions,
+    pub defs: DefinesMap,
+    pub procdefs: ProcDefinesMap,
+    pub opts: ParserOptions,
     #[cfg_attr(not(feature = "compile"), allow(unused))]
-    comp_map: CompilatesMap<'a>,
+    pub comp_map: CompilatesMap<'a>,
+
+    _non_exhaustive: PhantomData<()>,
 }
 
 #[cfg(feature = "compile")]
@@ -395,6 +397,7 @@ impl<'a> EvalContext<'a> {
             procdefs: BUILTINS.clone(),
             opts,
             comp_map,
+            _non_exhaustive: PhantomData,
         }
     }
 }

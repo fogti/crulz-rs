@@ -1,5 +1,6 @@
 use crate::ast::{ASTNode, CmdEvalArgs, GroupType, VAN};
 use bstr::ByteSlice;
+use std::marker::PhantomData;
 
 // === parser options
 
@@ -10,7 +11,8 @@ pub struct Options {
 }
 
 #[derive(Clone, Debug, thiserror::Error)]
-pub enum ParserErrorDetail {
+#[non_exhaustive]
+pub enum ErrorDetail {
     #[error("unexpected EOF")]
     UnexpectedEof,
     #[error("got empty/invalid eval statement")]
@@ -28,12 +30,13 @@ pub enum ParserErrorDetail {
     UnbalancedEos(u8),
 }
 
-type PED = ParserErrorDetail;
+type PED = ErrorDetail;
 
-pub struct ParserError<'a> {
-    origin: &'a [u8],
-    offending: &'a [u8],
-    detail: PED,
+pub struct Error<'a> {
+    pub origin: &'a [u8],
+    pub offending: &'a [u8],
+    pub detail: PED,
+    _non_exhaustive: PhantomData<()>,
 }
 
 // === parse trait
@@ -42,7 +45,7 @@ trait Parse: Sized {
     /// # Return value
     /// * `Ok(rest, parsed_obj)`
     /// * `Err(offending_code, description)`
-    fn parse(data: &[u8], opts: Options) -> Result<(&[u8], Self), ParserError<'_>>;
+    fn parse(data: &[u8], opts: Options) -> Result<(&[u8], Self), Error<'_>>;
 }
 
 // === parser utils
@@ -108,43 +111,47 @@ fn str_split_at_ctrl(
     })
 }
 
-fn do_expect<'a>(origin: &'a [u8], rest: &'a [u8], c: u8) -> Result<&'a [u8], ParserError<'a>> {
+fn do_expect<'a>(origin: &'a [u8], rest: &'a [u8], c: u8) -> Result<&'a [u8], Error<'a>> {
     if rest.get(0) == Some(&c) {
         Ok(&rest[1..])
     } else {
-        Err(ParserError {
+        Err(Error {
             origin,
             offending: rest,
             detail: PED::ExpectedInstead(c),
+            _non_exhaustive: PhantomData,
         })
     }
 }
 
 impl Parse for ASTNode {
-    fn parse(data: &[u8], opts: Options) -> Result<(&[u8], Self), ParserError<'_>> {
+    fn parse(data: &[u8], opts: Options) -> Result<(&[u8], Self), Error<'_>> {
         let escc = opts.escc;
         let mut iter = data.iter();
 
-        let i = *iter.next().ok_or_else(|| ParserError {
+        let i = *iter.next().ok_or_else(|| Error {
             origin: data,
             offending: data,
             detail: PED::UnexpectedEof,
+            _non_exhaustive: PhantomData,
         })?;
         match i {
             _ if i == escc => {
-                let i = *iter.next().ok_or_else(|| ParserError {
+                let i = *iter.next().ok_or_else(|| Error {
                     origin: data,
                     offending: data,
                     detail: PED::UnexpectedEof,
+                    _non_exhaustive: PhantomData,
                 })?;
                 if i == b'(' {
                     // got begin of cmdeval block
                     let (rest, mut vanx) = VAN::parse(iter.as_slice(), opts)?;
                     if vanx.is_empty() {
-                        return Err(ParserError {
+                        return Err(Error {
                             origin: data,
                             offending: &data[..std::cmp::min(data.len(), 3)],
                             detail: PED::InvalidEval,
+                            _non_exhaustive: PhantomData,
                         });
                     }
                     let rest = do_expect(data, rest, /*(*/ b')')?;
@@ -172,20 +179,22 @@ impl Parse for ASTNode {
                 } else if let Some(c) = parse_escaped_const(i, opts) {
                     Ok((iter.as_slice(), c))
                 } else if is_scope_end(&i) {
-                    Err(ParserError {
+                    Err(Error {
                         origin: data,
                         offending: str_slice_between(data, iter.as_slice()),
                         detail: PED::DangerousEos(i),
+                        _non_exhaustive: PhantomData,
                     })
                 } else {
                     // interpret it as a command (LaTeX-alike)
                     let (cmd, mut rest) =
                         str_split_at_ctrl(&data[1..], opts, |x| !x.is_ascii_whitespace());
                     if cmd.is_empty() {
-                        return Err(ParserError {
+                        return Err(Error {
                             origin: data,
                             offending: str_slice_between(data, iter.as_slice()),
                             detail: PED::InvalidEval,
+                            _non_exhaustive: PhantomData,
                         });
                     }
                     let args = if rest.get(0) == Some(&b'(') {
@@ -218,10 +227,11 @@ impl Parse for ASTNode {
                     },
                 ))
             }
-            _ if is_scope_end(&i) => Err(ParserError {
+            _ if is_scope_end(&i) => Err(Error {
                 origin: data,
                 offending: str_slice_between(data, iter.as_slice()),
                 detail: PED::UnbalancedEos(i),
+                _non_exhaustive: PhantomData,
             }),
             _ => Ok(if let Some(&(eogm, typ)) = SCOPE_MARKERS.get(&i) {
                 let (rest, elems) = VAN::parse(iter.as_slice(), opts)?;
@@ -246,7 +256,7 @@ impl Parse for ASTNode {
 }
 
 impl Parse for VAN {
-    fn parse(mut data: &[u8], opts: Options) -> Result<(&[u8], Self), ParserError<'_>> {
+    fn parse(mut data: &[u8], opts: Options) -> Result<(&[u8], Self), Error<'_>> {
         let mut ret = VAN::new();
         while data.get(0).map(is_scope_end) == Some(false) {
             let (rest, node) = ASTNode::parse(data, opts)?;
@@ -260,7 +270,7 @@ impl Parse for VAN {
 // === main parser
 
 /// At top level, only parse things inside CmdEval's
-pub fn parse_toplevel(mut data: &[u8], opts: Options) -> Result<VAN, ParserError<'_>> {
+pub fn parse_toplevel(mut data: &[u8], opts: Options) -> Result<VAN, Error<'_>> {
     let mut ret = VAN::new();
     while !data.is_empty() {
         let mut cstp_has_nws = false;
