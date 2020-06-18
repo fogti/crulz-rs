@@ -85,10 +85,18 @@ fn parse_escaped_const(i: u8, opts: ParserOptions) -> Option<ASTNode> {
     match i {
         b'{' | b'}' | b'$' => {}
         b'\n' => return Some(ASTNode::NullNode),
-        _ if i != opts.escc || opts.pass_escc => return None,
-        _ => {}
+        _ => {
+            if i != opts.escc {
+                return None;
+            }
+        }
     }
-    Some(ASTNode::Constant(true, vec![i].into()))
+    let mut ret = Vec::with_capacity(2);
+    if opts.pass_escc {
+        ret.push(opts.escc);
+    }
+    ret.push(i);
+    Some(ASTNode::Constant(true, ret.into()))
 }
 
 fn str_split_at_ctrl(
