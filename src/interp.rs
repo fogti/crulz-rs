@@ -77,9 +77,7 @@ fn eval_foreach(
     ctx: &mut EvalContext<'_>,
 ) -> Option<ASTNode> {
     Some(
-        if let ASTNode::Constant { non_space, .. } = &fecmd {
-            debug_assert!(non_space);
-
+        if let ASTNode::Constant(_) = &fecmd {
             // construct a function call
             let mut tmp_cmd = vec![fecmd.clone()];
             elems.fold(Vec::new(), |mut acc, mut tmp_args| {
@@ -271,10 +269,9 @@ fn blti_add(args: VAN) -> Option<ASTNode> {
     if unpacked.len() != 2 {
         None
     } else {
-        Some(ASTNode::Constant {
-            non_space: true,
-            data: (unpacked[0] + unpacked[1]).to_string().into(),
-        })
+        Some(ASTNode::Constant(
+            (unpacked[0] + unpacked[1]).to_string().into(),
+        ))
     }
 }
 fn blti_fseq(args: &mut VAN, ctx: &mut EvalContext<'_>) -> Option<ASTNode> {
@@ -300,10 +297,7 @@ fn eval_cmd(cmd: &mut VAN, args: &mut CmdEvalArgs, mut ctx: &mut EvalContext) ->
     // allow partial evaluation of command name
     *cmd = cmd.take().simplify().compact_toplevel();
     let cmd = match cmd.clone().lift_ast().simplify() {
-        ASTNode::Constant {
-            non_space: true,
-            data,
-        } => data,
+        ASTNode::Constant(data) => data,
         _ => return None,
     };
 

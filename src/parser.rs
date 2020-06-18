@@ -98,10 +98,7 @@ fn parse_escaped_const(i: u8, opts: ParserOptions) -> Option<ASTNode> {
         ret.push(opts.escc);
     }
     ret.push(i);
-    Some(ASTNode::Constant {
-        non_space: true,
-        data: ret.into(),
-    })
+    Some(ASTNode::Constant(ret.into()))
 }
 
 fn str_split_at_ctrl(
@@ -205,10 +202,7 @@ impl Parse for ASTNode {
                     Ok((
                         rest,
                         ASTNode::CmdEval {
-                            cmd: vec![ASTNode::Constant {
-                                non_space: true,
-                                data: cmd.into(),
-                            }],
+                            cmd: vec![ASTNode::Constant(cmd.into())],
                             args,
                         },
                     ))
@@ -240,13 +234,7 @@ impl Parse for ASTNode {
                 let is_whitespace = i.is_ascii_whitespace();
                 let (cdat, rest) =
                     str_split_at_ctrl(data, opts, |x| x.is_ascii_whitespace() == is_whitespace);
-                (
-                    rest,
-                    ASTNode::Constant {
-                        non_space: !is_whitespace,
-                        data: cdat.into(),
-                    },
-                )
+                (rest, ASTNode::Constant(cdat.into()))
             }),
         }
     }
@@ -270,16 +258,9 @@ impl Parse for VAN {
 pub fn parse_toplevel(mut data: &[u8], opts: ParserOptions) -> Result<VAN, ParserError<'_>> {
     let mut ret = VAN::new();
     while !data.is_empty() {
-        let mut cstp_has_nws = false;
-        let (cstp, rest) = str_split_at_while(data, |&i| {
-            cstp_has_nws |= !i.is_ascii_whitespace();
-            i != opts.escc
-        });
+        let (cstp, rest) = str_split_at_while(data, |&i| i != opts.escc);
         if !cstp.is_empty() {
-            ret.push(ASTNode::Constant {
-                non_space: cstp_has_nws,
-                data: cstp.into(),
-            });
+            ret.push(ASTNode::Constant(cstp.into()));
         }
         if rest.is_empty() {
             break;

@@ -36,7 +36,7 @@ impl MangleAST for ASTNode {
         use ASTNode::*;
         match self {
             NullNode => Vec::new(),
-            Constant { data, .. } => data.into(),
+            Constant(data) => data.into(),
             Grouped { typ, elems } => {
                 let inner = elems.to_vec(escc);
                 if typ == GroupType::Strict {
@@ -68,7 +68,7 @@ impl MangleAST for ASTNode {
         use ASTNode::*;
         match &self {
             NullNode => 0,
-            Constant { data, .. } => 1 + data.len(),
+            Constant(data) => 1 + data.len(),
             Argument { indirection, .. } => 3 + indirection,
             Grouped { typ, elems } => {
                 (match *typ {
@@ -145,10 +145,7 @@ impl MangleAST for ASTNode {
                         Some(x) => x.clone(),
                         None => return Err(index),
                     },
-                    None => Constant {
-                        non_space: true,
-                        data: vec![b'$'].into(),
-                    },
+                    None => Constant(vec![b'$'].into()),
                 };
             }
             Argument {
@@ -189,8 +186,8 @@ impl MangleAST for VAN {
                 {
                     false
                 }
-                ASTNode::Constant { data, .. } if data.is_empty() => false,
-                ASTNode::Constant { .. }
+                ASTNode::Constant(data) if data.is_empty() => false,
+                ASTNode::Constant(_)
                 | ASTNode::Grouped { .. }
                 | ASTNode::Argument { .. }
                 | ASTNode::CmdEval { .. } => true,
@@ -201,16 +198,10 @@ impl MangleAST for VAN {
                 use ASTNode::*;
                 let mut base = it.next()?;
                 match &mut base {
-                    Constant {
-                        non_space,
-                        ref mut data,
-                    } => {
-                        while let Some(Constant {
-                            non_space: ins2,
-                            data: ref y,
-                        }) = it.peek()
-                        {
-                            if non_space != ins2 {
+                    Constant(ref mut data) => {
+                        let ins = crate::ast::is_space(&data[..]);
+                        while let Some(Constant(ref y)) = it.peek() {
+                            if ins != crate::ast::is_space(&y[..]) {
                                 break;
                             }
                             data.extend_from_slice(&y[..]);
@@ -300,17 +291,8 @@ impl MangleASTExt for VAN {
             .peekable()
             .batching(|it| {
                 let mut ret = it.next()?;
-                if let ASTNode::Constant {
-                    non_space: ref mut rnsp,
-                    data: ref mut rdat,
-                } = &mut ret
-                {
-                    while let Some(ASTNode::Constant {
-                        non_space: nsp,
-                        data: ref dat,
-                    }) = it.peek()
-                    {
-                        *rnsp |= nsp;
+                if let ASTNode::Constant(ref mut rdat) = &mut ret {
+                    while let Some(ASTNode::Constant(ref dat)) = it.peek() {
                         rdat.extend_from_slice(&dat[..]);
                         it.next();
                     }
@@ -329,58 +311,28 @@ mod tests {
     #[test]
     fn test_simplify() {
         let ast = vec![
-            Constant {
-                non_space: true,
-                data: b"a".to_vec().into(),
-            },
-            Constant {
-                non_space: true,
-                data: b"b".to_vec().into(),
-            }
-            .lift_ast()
-            .lift_ast()
-            .lift_ast()
-            .lift_ast(),
-            Constant {
-                non_space: true,
-                data: b"c".to_vec().into(),
-            },
+            Constant(b"a".to_vec().into()),
+            Constant(b"b".to_vec().into())
+                .lift_ast()
+                .lift_ast()
+                .lift_ast()
+                .lift_ast(),
+            Constant(b"c".to_vec().into()),
         ]
         .lift_ast()
         .lift_ast()
         .lift_ast();
-        assert_eq!(
-            ast.simplify(),
-            Constant {
-                non_space: true,
-                data: b"abc".to_vec().into()
-            }
-        );
+        assert_eq!(ast.simplify(), Constant(b"abc".to_vec().into()));
     }
 
     #[test]
     fn test_compact_tl() {
         let ast = vec![
-            Constant {
-                non_space: true,
-                data: b"a".to_vec().into(),
-            },
-            Constant {
-                non_space: false,
-                data: b"b".to_vec().into(),
-            },
-            Constant {
-                non_space: true,
-                data: b"c".to_vec().into(),
-            },
+            Constant(b"a".to_vec().into()),
+            Constant(b" ".to_vec().into()),
+            Constant(b"c".to_vec().into()),
         ]
         .compact_toplevel();
-        assert_eq!(
-            ast,
-            vec![Constant {
-                non_space: true,
-                data: b"abc".to_vec().into()
-            }]
-        );
+        assert_eq!(ast, vec![Constant(b"a c".to_vec().into())]);
     }
 }
