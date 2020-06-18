@@ -5,7 +5,7 @@ use std::borrow::Cow;
 mod mangle;
 mod tests;
 
-pub use mangle::{MangleAST, MangleASTExt};
+pub use mangle::{Mangle, MangleExt};
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum GroupType {
@@ -16,7 +16,7 @@ pub enum GroupType {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub enum ASTNode {
+pub enum Node {
     NullNode,
 
     Constant {
@@ -33,26 +33,26 @@ pub enum ASTNode {
 
     Grouped {
         typ: GroupType,
-        elems: Vec<ASTNode>,
+        elems: Vec<Node>,
     },
 
     CmdEval {
-        cmd: Vec<ASTNode>,
+        cmd: Vec<Node>,
         args: CmdEvalArgs,
     },
 }
 
-use ASTNode::*;
-pub type VAN = Vec<ASTNode>;
+use Node::*;
+pub type VAN = Vec<Node>;
 
-impl std::default::Default for ASTNode {
+impl std::default::Default for Node {
     #[inline(always)]
     fn default() -> Self {
         NullNode
     }
 }
 
-impl ASTNode {
+impl Node {
     #[inline(always)]
     pub(crate) fn is_space(&self) -> bool {
         match self {
@@ -74,9 +74,9 @@ impl ASTNode {
 
     pub(crate) fn conv_to_constant(&self) -> Option<Cow<'_, [u8]>> {
         match self {
-            ASTNode::Constant { ref data, .. } => Some((&**data).into()),
-            ASTNode::Grouped { typ, elems } if *typ != GroupType::Strict => {
-                let mut impc = elems.iter().map(ASTNode::conv_to_constant);
+            Node::Constant { ref data, .. } => Some((&**data).into()),
+            Node::Grouped { typ, elems } if *typ != GroupType::Strict => {
+                let mut impc = elems.iter().map(Node::conv_to_constant);
                 if elems.len() == 1 {
                     impc.next().unwrap()
                 } else if impc.clone().any(|i| i.is_none()) {
@@ -98,16 +98,17 @@ impl ASTNode {
     }
 }
 
-pub trait LiftAST {
-    type LiftT: LiftAST;
+#[doc(hidden)]
+pub trait Lift {
+    type LiftT: Lift;
 
-    // lift the AST one level up (ASTNode -> VAN || VAN -> ASTNode),
-    // used as helper for MangleAST::simplify_inplace and others
-    // to convert to the appropriate datatype
+    /// lift the AST one level up (Node -> VAN || VAN -> Node),
+    /// used as helper for [`Mangle::simplify_inplace`] and others
+    /// to convert to the appropriate datatype
     fn lift_ast(self) -> Self::LiftT;
 }
 
-impl LiftAST for ASTNode {
+impl Lift for Node {
     type LiftT = VAN;
 
     #[inline(always)]
@@ -116,12 +117,12 @@ impl LiftAST for ASTNode {
     }
 }
 
-impl LiftAST for VAN {
-    type LiftT = ASTNode;
+impl Lift for VAN {
+    type LiftT = Node;
 
     #[inline(always)]
     fn lift_ast(self) -> Self::LiftT {
-        ASTNode::Grouped {
+        Node::Grouped {
             typ: GroupType::Dissolving,
             elems: self,
         }
@@ -132,8 +133,8 @@ impl LiftAST for VAN {
 pub struct CmdEvalArgs(pub VAN);
 
 impl std::iter::IntoIterator for CmdEvalArgs {
-    type Item = ASTNode;
-    type IntoIter = std::vec::IntoIter<ASTNode>;
+    type Item = Node;
+    type IntoIter = std::vec::IntoIter<Node>;
 
     #[inline(always)]
     fn into_iter(self) -> Self::IntoIter {
@@ -141,11 +142,11 @@ impl std::iter::IntoIterator for CmdEvalArgs {
     }
 }
 
-impl std::iter::FromIterator<ASTNode> for CmdEvalArgs {
+impl std::iter::FromIterator<Node> for CmdEvalArgs {
     #[inline(always)]
     fn from_iter<T>(iter: T) -> Self
     where
-        T: IntoIterator<Item = ASTNode>,
+        T: IntoIterator<Item = Node>,
     {
         Self(Vec::from_iter(iter))
     }
@@ -179,8 +180,8 @@ impl CmdEvalArgs {
 #[delegate(self.0)]
 #[rustfmt::skip]
 impl CmdEvalArgs {
-    pub fn iter(&self) -> std::slice::Iter<ASTNode> { }
-    pub fn iter_mut(&mut self) -> std::slice::IterMut<ASTNode> { }
+    pub fn iter(&self) -> std::slice::Iter<Node> { }
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<Node> { }
     pub fn len(&self) -> usize { }
     pub fn is_empty(&self) -> bool { }
 }

@@ -1,5 +1,5 @@
 use crate::{
-    ast::{ASTNode, CmdEvalArgs, GroupType, LiftAST, MangleAST, VAN},
+    ast::{CmdEvalArgs, GroupType, Lift as _, Mangle, MangleExt as _, Node as ASTNode, VAN},
     parser::Options as ParserOptions,
 };
 #[cfg(feature = "compile")]
@@ -292,8 +292,6 @@ fn blti_undef(args: &mut VAN, ctx: &mut EvalContext<'_>) -> Option<ASTNode> {
 }
 
 fn eval_cmd(cmd: &mut VAN, args: &mut CmdEvalArgs, mut ctx: &mut EvalContext) -> Option<ASTNode> {
-    use crate::ast::MangleASTExt;
-
     // evaluate command name
     for i in cmd.iter_mut() {
         i.eval(ctx);
@@ -350,7 +348,7 @@ fn eval_cmd(cmd: &mut VAN, args: &mut CmdEvalArgs, mut ctx: &mut EvalContext) ->
     }
 }
 
-trait Eval: MangleAST {
+trait Eval: Mangle {
     /// if (return value): fully evaluated
     fn eval(&mut self, ctx: &mut EvalContext) -> bool;
 }
@@ -403,7 +401,6 @@ impl<'a> EvalContext<'a> {
 }
 
 pub fn eval(data: &mut VAN, ctx: &mut EvalContext<'_>, _comp_out: Option<&std::path::Path>) {
-    use crate::ast::MangleASTExt;
     let mut cplx = data.get_complexity();
     loop {
         data.eval(ctx);

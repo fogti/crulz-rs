@@ -1,15 +1,15 @@
-use super::{ASTNode, CmdEvalArgs, GroupType, LiftAST, VAN};
+use super::{CmdEvalArgs, GroupType, Lift as _, Node as ASTNode, VAN};
 use bstr::ByteSlice;
 use delegate_attr::delegate;
 use itertools::Itertools;
 
 // do NOT "use ASTNode::*;" here, because sometimes we want to "use ASTNodeClass::*;"
 
-pub trait MangleAST: Default {
+pub trait Mangle: Default {
     /// transform this AST into a byte string
     fn to_vec(self, escc: u8) -> Vec<u8>;
 
-    /// helper for MangleAST::simplify and interp::eval
+    /// helper for [`Mangle::simplify`] and interp::eval
     fn get_complexity(&self) -> usize;
 
     #[inline(always)]
@@ -31,7 +31,7 @@ pub trait MangleAST: Default {
     fn apply_arguments_inplace(&mut self, args: &CmdEvalArgs) -> Result<(), usize>;
 }
 
-impl MangleAST for ASTNode {
+impl Mangle for ASTNode {
     fn to_vec(self, escc: u8) -> Vec<u8> {
         use ASTNode::*;
         match self {
@@ -170,7 +170,7 @@ impl MangleAST for ASTNode {
     }
 }
 
-impl MangleAST for VAN {
+impl Mangle for VAN {
     fn to_vec(self, escc: u8) -> Vec<u8> {
         self.into_iter().flat_map(|i| i.to_vec(escc)).collect()
     }
@@ -246,7 +246,7 @@ impl MangleAST for VAN {
     }
 }
 
-impl MangleAST for CmdEvalArgs {
+impl Mangle for CmdEvalArgs {
     fn to_vec(self, escc: u8) -> Vec<u8> {
         self.0.into_iter().fold(Vec::new(), |mut acc, i| {
             acc.push(b' ');
@@ -279,11 +279,11 @@ impl MangleAST for CmdEvalArgs {
     fn apply_arguments_inplace(&mut self, args: &CmdEvalArgs) -> Result<(), usize> {}
 }
 
-pub trait MangleASTExt: MangleAST {
+pub trait MangleExt: Mangle {
     fn compact_toplevel(self) -> Self;
 }
 
-impl MangleASTExt for VAN {
+impl MangleExt for VAN {
     fn compact_toplevel(self) -> Self {
         // we are at the top level, wo can inline non-strict groups
         // and then put all constants heaps into single constants

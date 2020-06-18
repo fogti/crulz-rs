@@ -1,10 +1,8 @@
 #![cfg(test)]
-
 use super::*;
 
 #[test]
 fn test_args2unspaced() {
-    use ASTNode::*;
     assert_eq!(
         CmdEvalArgs::from_wsdelim(vec![
             Constant {

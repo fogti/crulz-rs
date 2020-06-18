@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-fn print_ast(step: &str, trs: &[crulz::ast::ASTNode]) {
+fn print_ast(step: &str, trs: &[crulz::ast::Node]) {
     eprintln!(
         "crulz: {}:\n{:#?}\n----",
         ansi_term::Style::new().bold().paint(step),
@@ -78,7 +78,7 @@ struct CrulzOptions {
 }
 
 fn main() {
-    use crulz::ast::MangleAST;
+    use crulz::ast::Mangle as _;
 
     let opts = CrulzOptions::parse_args_default_or_exit();
     let vblvl = opts.verbose;

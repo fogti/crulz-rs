@@ -1,4 +1,4 @@
-use crate::ast::{ASTNode, CmdEvalArgs, GroupType, VAN};
+use crate::ast::{CmdEvalArgs, GroupType, Node as ASTNode, VAN};
 use bstr::ByteSlice;
 use std::marker::PhantomData;
 
