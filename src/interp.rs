@@ -390,7 +390,7 @@ impl<'a> EvalContext<'a> {
     }
 }
 
-pub fn eval(data: &mut VAN, ctx: &mut EvalContext<'_>, comp_out: Option<&std::path::Path>) {
+pub fn eval(data: &mut VAN, ctx: &mut EvalContext<'_>, _comp_out: Option<&std::path::Path>) {
     use crate::mangle_ast::MangleASTExt;
     let mut cplx = data.get_complexity();
     loop {
@@ -404,12 +404,10 @@ pub fn eval(data: &mut VAN, ctx: &mut EvalContext<'_>, comp_out: Option<&std::pa
     }
     cfg_if! {
         if #[cfg(feature = "compile")] {
-            if let Some(comp_out) = comp_out {
+            if let Some(comp_out) = _comp_out {
                 ctx.save_to_compfile(comp_out, &*data)
                     .expect("save failed");
             }
-        } else {
-            let _ = comp_out;
         }
     }
 }
