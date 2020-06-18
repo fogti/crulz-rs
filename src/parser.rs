@@ -98,7 +98,10 @@ fn parse_escaped_const(i: u8, opts: ParserOptions) -> Option<ASTNode> {
         ret.push(opts.escc);
     }
     ret.push(i);
-    Some(ASTNode::Constant(true, ret.into()))
+    Some(ASTNode::Constant {
+        non_space: true,
+        data: ret.into(),
+    })
 }
 
 fn str_split_at_ctrl(
@@ -166,7 +169,13 @@ impl Parse for ASTNode {
                     if cmd.last().unwrap().is_space() {
                         cmd.pop();
                     }
-                    Ok((rest, ASTNode::CmdEval(cmd, CmdEvalArgs::from_wsdelim(van))))
+                    Ok((
+                        rest,
+                        ASTNode::CmdEval {
+                            cmd,
+                            args: CmdEvalArgs::from_wsdelim(van),
+                        },
+                    ))
                 } else if let Some(c) = parse_escaped_const(i, opts) {
                     Ok((iter.as_slice(), c))
                 } else if is_scope_end(&i) {
@@ -186,7 +195,7 @@ impl Parse for ASTNode {
                             detail: PED::InvalidEval,
                         });
                     }
-                    let vanx = if rest.get(0) == Some(&b'(') {
+                    let args = if rest.get(0) == Some(&b'(') {
                         let (tmp_rest, van) = VAN::parse(&rest[1..], opts)?;
                         rest = do_expect(data, tmp_rest, b')')?;
                         CmdEvalArgs::from_wsdelim(van)
@@ -195,7 +204,13 @@ impl Parse for ASTNode {
                     };
                     Ok((
                         rest,
-                        ASTNode::CmdEval(vec![ASTNode::Constant(true, cmd.into())], vanx),
+                        ASTNode::CmdEval {
+                            cmd: vec![ASTNode::Constant {
+                                non_space: true,
+                                data: cmd.into(),
+                            }],
+                            args,
+                        },
                     ))
                 }
             }
@@ -215,14 +230,23 @@ impl Parse for ASTNode {
                 offending: str_slice_between(data, iter.as_slice()),
                 detail: PED::UnbalancedEos(i),
             }),
-            _ => Ok(if let Some(&(eogm, rgt)) = SCOPE_MARKERS.get(&i) {
-                let (rest, van) = VAN::parse(iter.as_slice(), opts)?;
-                (do_expect(data, rest, eogm)?, ASTNode::Grouped(rgt, van))
+            _ => Ok(if let Some(&(eogm, typ)) = SCOPE_MARKERS.get(&i) {
+                let (rest, elems) = VAN::parse(iter.as_slice(), opts)?;
+                (
+                    do_expect(data, rest, eogm)?,
+                    ASTNode::Grouped { typ, elems },
+                )
             } else {
                 let is_whitespace = i.is_ascii_whitespace();
                 let (cdat, rest) =
                     str_split_at_ctrl(data, opts, |x| x.is_ascii_whitespace() == is_whitespace);
-                (rest, ASTNode::Constant(!is_whitespace, cdat.into()))
+                (
+                    rest,
+                    ASTNode::Constant {
+                        non_space: !is_whitespace,
+                        data: cdat.into(),
+                    },
+                )
             }),
         }
     }
@@ -252,7 +276,10 @@ pub fn parse_toplevel(mut data: &[u8], opts: ParserOptions) -> Result<VAN, Parse
             i != opts.escc
         });
         if !cstp.is_empty() {
-            ret.push(ASTNode::Constant(cstp_has_nws, cstp.into()));
+            ret.push(ASTNode::Constant {
+                non_space: cstp_has_nws,
+                data: cstp.into(),
+            });
         }
         if rest.is_empty() {
             break;

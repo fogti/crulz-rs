@@ -36,10 +36,10 @@ impl MangleAST for ASTNode {
         use ASTNode::*;
         match self {
             NullNode => Vec::new(),
-            Constant(_, x) => x.into(),
-            Grouped(gt, elems) => {
+            Constant { data, .. } => data.into(),
+            Grouped { typ, elems } => {
                 let inner = elems.to_vec(escc);
-                if gt == GroupType::Strict {
+                if typ == GroupType::Strict {
                     [b"(", &inner[..], b")"]
                         .iter()
                         .flat_map(|i| (*i).bytes())
@@ -52,7 +52,7 @@ impl MangleAST for ASTNode {
                 .take(indirection + 1)
                 .chain(index.map(|i| i.to_string()).iter().flat_map(|i| i.bytes()))
                 .collect(),
-            CmdEval(cmd, args) => {
+            CmdEval { cmd, args } => {
                 let mut ret = Vec::new();
                 ret.push(escc);
                 ret.push(b'(');
@@ -68,16 +68,16 @@ impl MangleAST for ASTNode {
         use ASTNode::*;
         match &self {
             NullNode => 0,
-            Constant(_, x) => 1 + x.len(),
+            Constant { data, .. } => 1 + data.len(),
             Argument { indirection, .. } => 3 + indirection,
-            Grouped(gt, x) => {
-                (match *gt {
+            Grouped { typ, elems } => {
+                (match *typ {
                     GroupType::Dissolving => 0,
                     GroupType::Loose => 1,
                     GroupType::Strict => 2,
-                }) + x.get_complexity()
+                }) + elems.get_complexity()
             }
-            CmdEval(cmd, x) => 1 + cmd.get_complexity() + x.get_complexity(),
+            CmdEval { cmd, args } => 1 + cmd.get_complexity() + args.get_complexity(),
         }
     }
 
@@ -86,29 +86,39 @@ impl MangleAST for ASTNode {
         let mut cplx = self.get_complexity();
         loop {
             match &mut self {
-                Grouped(ref mut gt, ref mut x) => {
-                    match x.len() {
+                Grouped {
+                    ref mut typ,
+                    ref mut elems,
+                } => {
+                    match elems.len() {
                         0 => {
-                            if *gt != GroupType::Strict {
+                            if *typ != GroupType::Strict {
                                 self = NullNode;
                                 break;
                             }
                         }
                         1 => {
-                            let y = x[0].take().simplify();
-                            if *gt != GroupType::Strict {
+                            let y = elems[0].take().simplify();
+                            if *typ != GroupType::Strict {
                                 self = y;
-                            } else if let Grouped(GroupType::Dissolving, z) = y {
-                                *x = z;
+                            } else if let Grouped {
+                                typ: GroupType::Dissolving,
+                                elems: z,
+                            } = y
+                            {
+                                *elems = z;
                             } else {
                                 // swap it back, omit clone
-                                x[0] = y;
+                                elems[0] = y;
                             }
                         }
-                        _ => x.simplify_inplace(),
+                        _ => elems.simplify_inplace(),
                     }
                 }
-                CmdEval(ref mut cmd, ref mut args) => {
+                CmdEval {
+                    ref mut cmd,
+                    ref mut args,
+                } => {
                     cmd.simplify_inplace();
                     args.simplify_inplace();
                 }
@@ -135,7 +145,10 @@ impl MangleAST for ASTNode {
                         Some(x) => x.clone(),
                         None => return Err(index),
                     },
-                    None => Constant(true, vec![b'$'].into()),
+                    None => Constant {
+                        non_space: true,
+                        data: vec![b'$'].into(),
+                    },
                 };
             }
             Argument {
@@ -143,8 +156,11 @@ impl MangleAST for ASTNode {
                 ..
             } => *indirection -= 1,
 
-            Grouped(_, ref mut x) => x.apply_arguments_inplace(xargs)?,
-            CmdEval(ref mut cmd, ref mut args) => {
+            Grouped { ref mut elems, .. } => elems.apply_arguments_inplace(xargs)?,
+            CmdEval {
+                ref mut cmd,
+                ref mut args,
+            } => {
                 cmd.apply_arguments_inplace(xargs)?;
                 args.apply_arguments_inplace(xargs)?;
             }
@@ -168,12 +184,16 @@ impl MangleAST for VAN {
         self.into_iter()
             .map(|i| i.simplify())
             .filter(|i| match i {
-                ASTNode::Grouped(gt, x) if x.is_empty() && *gt != GroupType::Strict => false,
-                ASTNode::Constant(_, x) if x.is_empty() => false,
-                ASTNode::Constant(_, _)
-                | ASTNode::Grouped(_, _)
+                ASTNode::Grouped { typ, elems }
+                    if elems.is_empty() && *typ != GroupType::Strict =>
+                {
+                    false
+                }
+                ASTNode::Constant { data, .. } if data.is_empty() => false,
+                ASTNode::Constant { .. }
+                | ASTNode::Grouped { .. }
                 | ASTNode::Argument { .. }
-                | ASTNode::CmdEval(_, _) => true,
+                | ASTNode::CmdEval { .. } => true,
                 ASTNode::NullNode => false,
             })
             .peekable()
@@ -181,24 +201,34 @@ impl MangleAST for VAN {
                 use ASTNode::*;
                 let mut base = it.next()?;
                 match &mut base {
-                    Constant(gt, ref mut x) => {
-                        while let Some(Constant(gt2, ref y)) = it.peek() {
-                            if gt != gt2 {
+                    Constant {
+                        non_space,
+                        ref mut data,
+                    } => {
+                        while let Some(Constant {
+                            non_space: ins2,
+                            data: ref y,
+                        }) = it.peek()
+                        {
+                            if non_space != ins2 {
                                 break;
                             }
-                            x.extend_from_slice(&y[..]);
+                            data.extend_from_slice(&y[..]);
                             it.next();
                         }
                     }
-                    Grouped(GroupType::Dissolving, ref mut x) => {
-                        while let Some(Grouped(gt2, ref y)) = it.peek() {
-                            if *gt2 != GroupType::Dissolving {
+                    Grouped {
+                        typ: GroupType::Dissolving,
+                        ref mut elems,
+                    } => {
+                        while let Some(Grouped { typ, elems: ref y }) = it.peek() {
+                            if *typ != GroupType::Dissolving {
                                 break;
                             }
-                            x.extend_from_slice(&y[..]);
+                            elems.extend_from_slice(&y[..]);
                             it.next();
                         }
-                        return Some(std::mem::take(x));
+                        return Some(std::mem::take(elems));
                     }
                     _ => {}
                 }
@@ -229,7 +259,11 @@ impl MangleAST for CmdEvalArgs {
         self.into_iter()
             .map(|i| i.simplify())
             .flat_map(|i| {
-                if let ASTNode::Grouped(GroupType::Dissolving, elems) = i {
+                if let ASTNode::Grouped {
+                    typ: GroupType::Dissolving,
+                    elems,
+                } = i
+                {
                     elems
                 } else {
                     i.lift_ast()
@@ -257,16 +291,26 @@ impl MangleASTExt for VAN {
             // 1. inline non-strict groups
             .flat_map(|i| match i {
                 ASTNode::NullNode => vec![],
-                ASTNode::Grouped(gt, x) if gt != GroupType::Strict => x.compact_toplevel(),
+                ASTNode::Grouped { typ, elems } if typ != GroupType::Strict => {
+                    elems.compact_toplevel()
+                }
                 _ => vec![i],
             })
             // 2. aggressive concat constant-after-constants
             .peekable()
             .batching(|it| {
                 let mut ret = it.next()?;
-                if let ASTNode::Constant(ref mut risp, ref mut rdat) = &mut ret {
-                    while let Some(ASTNode::Constant(isp, ref dat)) = it.peek() {
-                        *risp |= isp;
+                if let ASTNode::Constant {
+                    non_space: ref mut rnsp,
+                    data: ref mut rdat,
+                } = &mut ret
+                {
+                    while let Some(ASTNode::Constant {
+                        non_space: nsp,
+                        data: ref dat,
+                    }) = it.peek()
+                    {
+                        *rnsp |= nsp;
                         rdat.extend_from_slice(&dat[..]);
                         it.next();
                     }
@@ -285,28 +329,58 @@ mod tests {
     #[test]
     fn test_simplify() {
         let ast = vec![
-            Constant(true, b"a".to_vec().into()),
-            Constant(true, b"b".to_vec().into())
-                .lift_ast()
-                .lift_ast()
-                .lift_ast()
-                .lift_ast(),
-            Constant(true, b"c".to_vec().into()),
+            Constant {
+                non_space: true,
+                data: b"a".to_vec().into(),
+            },
+            Constant {
+                non_space: true,
+                data: b"b".to_vec().into(),
+            }
+            .lift_ast()
+            .lift_ast()
+            .lift_ast()
+            .lift_ast(),
+            Constant {
+                non_space: true,
+                data: b"c".to_vec().into(),
+            },
         ]
         .lift_ast()
         .lift_ast()
         .lift_ast();
-        assert_eq!(ast.simplify(), Constant(true, b"abc".to_vec().into()));
+        assert_eq!(
+            ast.simplify(),
+            Constant {
+                non_space: true,
+                data: b"abc".to_vec().into()
+            }
+        );
     }
 
     #[test]
     fn test_compact_tl() {
         let ast = vec![
-            Constant(true, b"a".to_vec().into()),
-            Constant(false, b"b".to_vec().into()),
-            Constant(true, b"c".to_vec().into()),
+            Constant {
+                non_space: true,
+                data: b"a".to_vec().into(),
+            },
+            Constant {
+                non_space: false,
+                data: b"b".to_vec().into(),
+            },
+            Constant {
+                non_space: true,
+                data: b"c".to_vec().into(),
+            },
         ]
         .compact_toplevel();
-        assert_eq!(ast, vec![Constant(true, b"abc".to_vec().into())]);
+        assert_eq!(
+            ast,
+            vec![Constant {
+                non_space: true,
+                data: b"abc".to_vec().into()
+            }]
+        );
     }
 }

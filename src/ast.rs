@@ -6,6 +6,7 @@ use std::borrow::Cow;
 pub enum GroupType {
     Strict,
     Loose,
+    /// dissolving groups are created while replacing patterns
     Dissolving,
 }
 
@@ -13,22 +14,27 @@ pub enum GroupType {
 pub enum ASTNode {
     NullNode,
 
-    /// Constant: is_non_space, data
-    Constant(bool, bstr::BString),
+    Constant {
+        non_space: bool,
+        data: bstr::BString,
+    },
 
-    /// Argument: indirection (= (count of '$'s) - 1), index
-    /// no given index means something like '$$.'
     Argument {
+        /// `= (count of '$'s) - 1`
         indirection: usize,
+        /// no given index means something like '$$.'
         index: Option<usize>,
     },
 
-    /// Grouped: type, elems
-    /// loose groups are created while replacing patterns
-    Grouped(GroupType, Vec<ASTNode>),
+    Grouped {
+        typ: GroupType,
+        elems: Vec<ASTNode>,
+    },
 
-    /// CmdEval: cmd, args
-    CmdEval(Vec<ASTNode>, CmdEvalArgs),
+    CmdEval {
+        cmd: Vec<ASTNode>,
+        args: CmdEvalArgs,
+    },
 }
 
 use ASTNode::*;
@@ -45,7 +51,10 @@ impl ASTNode {
     #[inline(always)]
     pub(crate) fn is_space(&self) -> bool {
         match self {
-            NullNode | Constant(false, _) => true,
+            NullNode
+            | Constant {
+                non_space: false, ..
+            } => true,
             _ => false,
         }
     }
@@ -53,27 +62,27 @@ impl ASTNode {
     #[inline(always)]
     pub(crate) fn as_constant(&self) -> Option<&[u8]> {
         match self {
-            Constant(_, ref x) => Some(x.as_slice()),
+            Constant { ref data, .. } => Some(data.as_slice()),
             _ => None,
         }
     }
 
     pub(crate) fn conv_to_constant(&self) -> Option<Cow<'_, [u8]>> {
         match self {
-            ASTNode::Constant(_, ref x) => Some((&**x).into()),
-            ASTNode::Grouped(gt, x) if *gt != GroupType::Strict => {
-                let mut impc = x.iter().map(ASTNode::conv_to_constant);
-                if x.len() == 1 {
+            ASTNode::Constant { ref data, .. } => Some((&**data).into()),
+            ASTNode::Grouped { typ, elems } if *typ != GroupType::Strict => {
+                let mut impc = elems.iter().map(ASTNode::conv_to_constant);
+                if elems.len() == 1 {
                     impc.next().unwrap()
                 } else if impc.clone().any(|i| i.is_none()) {
                     None
                 } else {
+                    use bstr::ByteSlice;
                     let impc: Vec<_> = impc.map(Option::unwrap).collect();
                     Some(
                         impc.iter()
-                            .map(|i| i.as_ref())
+                            .map(|i| i.as_ref().bytes())
                             .flatten()
-                            .copied()
                             .collect::<Vec<_>>()
                             .into(),
                     )
@@ -107,7 +116,10 @@ impl LiftAST for VAN {
 
     #[inline(always)]
     fn lift_ast(self) -> Self::LiftT {
-        ASTNode::Grouped(GroupType::Dissolving, self)
+        ASTNode::Grouped {
+            typ: GroupType::Dissolving,
+            elems: self,
+        }
     }
 }
 
@@ -119,7 +131,7 @@ impl std::iter::IntoIterator for CmdEvalArgs {
     type IntoIter = std::vec::IntoIter<ASTNode>;
 
     #[inline(always)]
-    fn into_iter(self) -> std::vec::IntoIter<ASTNode> {
+    fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
 }
@@ -178,15 +190,36 @@ mod tests {
         use ASTNode::*;
         assert_eq!(
             CmdEvalArgs::from_wsdelim(vec![
-                Constant(true, b"a".to_vec().into()),
-                Constant(false, b"a".to_vec().into()),
-                Constant(true, b"a".to_vec().into()),
-                Constant(true, b"a".to_vec().into()),
-                Constant(false, b"a".to_vec().into())
+                Constant {
+                    non_space: true,
+                    data: b"a".to_vec().into()
+                },
+                Constant {
+                    non_space: false,
+                    data: b"a".to_vec().into()
+                },
+                Constant {
+                    non_space: true,
+                    data: b"a".to_vec().into()
+                },
+                Constant {
+                    non_space: true,
+                    data: b"a".to_vec().into()
+                },
+                Constant {
+                    non_space: false,
+                    data: b"a".to_vec().into()
+                }
             ]),
             CmdEvalArgs(vec![
-                Constant(true, b"a".to_vec().into()),
-                Constant(true, b"aa".to_vec().into())
+                Constant {
+                    non_space: true,
+                    data: b"a".to_vec().into()
+                },
+                Constant {
+                    non_space: true,
+                    data: b"aa".to_vec().into()
+                }
             ])
         );
     }

@@ -77,8 +77,8 @@ fn eval_foreach(
     ctx: &mut EvalContext<'_>,
 ) -> Option<ASTNode> {
     Some(
-        if let ASTNode::Constant(is_dat, _) = &fecmd {
-            debug_assert!(is_dat);
+        if let ASTNode::Constant { non_space, .. } = &fecmd {
+            debug_assert!(non_space);
 
             // construct a function call
             let mut tmp_cmd = vec![fecmd.clone()];
@@ -87,7 +87,10 @@ fn eval_foreach(
                     if let Some(x) = eval_cmd(&mut tmp_cmd, &mut tmp_args, ctx) {
                         x
                     } else {
-                        ASTNode::CmdEval(tmp_cmd.clone(), tmp_args)
+                        ASTNode::CmdEval {
+                            cmd: tmp_cmd.clone(),
+                            args: tmp_args,
+                        }
                     },
                 );
                 acc
@@ -111,15 +114,15 @@ fn unpack(x: &mut ASTNode, ctx: &mut EvalContext<'_>) -> Option<Vec<u8>> {
 }
 
 fn uneg(mut arg: ASTNode) -> ASTNode {
-    if let ASTNode::Grouped(ref mut gt, _) = arg {
-        *gt = GroupType::Dissolving;
+    if let ASTNode::Grouped { ref mut typ, .. } = arg {
+        *typ = GroupType::Dissolving;
     }
     arg
 }
 
 fn fe_elems(x: &ASTNode) -> Option<VAN> {
     match x {
-        ASTNode::Grouped(_, ref elems) => Some(elems.clone()),
+        ASTNode::Grouped { ref elems, .. } => Some(elems.clone()),
         _ => None,
     }
 }
@@ -206,8 +209,8 @@ fn blti_foreach_raw(args: &mut VAN, ctx: &mut EvalContext<'_>) -> Option<ASTNode
         x.eval(ctx);
     }
     let elems = fe_elems(&args[0])?.into_iter().map(|i| {
-        CmdEvalArgs(if let ASTNode::Grouped(_, tmp_args) = i {
-            tmp_args
+        CmdEvalArgs(if let ASTNode::Grouped { elems, .. } = i {
+            elems
         } else {
             i.lift_ast()
         })
@@ -222,8 +225,8 @@ fn blti_foreach(args: &mut VAN, ctx: &mut EvalContext<'_>) -> Option<ASTNode> {
     let elems = CmdEvalArgs::from_wsdelim(fe_elems(&args[0])?)
         .into_iter()
         .map(|i| {
-            if let ASTNode::Grouped(_, tmp_args) = i {
-                CmdEvalArgs::from_wsdelim(tmp_args)
+            if let ASTNode::Grouped { elems, .. } = i {
+                CmdEvalArgs::from_wsdelim(elems)
             } else {
                 CmdEvalArgs(i.lift_ast())
             }
@@ -268,10 +271,10 @@ fn blti_add(args: VAN) -> Option<ASTNode> {
     if unpacked.len() != 2 {
         None
     } else {
-        Some(ASTNode::Constant(
-            true,
-            (unpacked[0] + unpacked[1]).to_string().into(),
-        ))
+        Some(ASTNode::Constant {
+            non_space: true,
+            data: (unpacked[0] + unpacked[1]).to_string().into(),
+        })
     }
 }
 fn blti_fseq(args: &mut VAN, ctx: &mut EvalContext<'_>) -> Option<ASTNode> {
@@ -297,7 +300,10 @@ fn eval_cmd(cmd: &mut VAN, args: &mut CmdEvalArgs, mut ctx: &mut EvalContext) ->
     // allow partial evaluation of command name
     *cmd = cmd.take().simplify().compact_toplevel();
     let cmd = match cmd.clone().lift_ast().simplify() {
-        ASTNode::Constant(true, cmd) => cmd,
+        ASTNode::Constant {
+            non_space: true,
+            data,
+        } => data,
         _ => return None,
     };
 
@@ -323,7 +329,11 @@ fn eval_cmd(cmd: &mut VAN, args: &mut CmdEvalArgs, mut ctx: &mut EvalContext) ->
                 .into_iter()
                 .flat_map(|mut i| {
                     i.eval(ctx);
-                    if let ASTNode::Grouped(GroupType::Dissolving, elems) = i {
+                    if let ASTNode::Grouped {
+                        typ: GroupType::Dissolving,
+                        elems,
+                    } = i
+                    {
                         elems
                     } else {
                         i.lift_ast()
@@ -348,7 +358,7 @@ impl Eval for ASTNode {
     fn eval(mut self: &mut Self, ctx: &mut EvalContext) -> bool {
         use ASTNode::*;
         match &mut self {
-            CmdEval(cmd, args) => {
+            CmdEval { cmd, args } => {
                 if let Some(x) = eval_cmd(cmd, args, ctx) {
                     *self = x;
                     true
@@ -356,7 +366,7 @@ impl Eval for ASTNode {
                     false
                 }
             }
-            Grouped(_, x) => x.eval(ctx),
+            Grouped { elems, .. } => elems.eval(ctx),
             _ => true,
         }
     }
