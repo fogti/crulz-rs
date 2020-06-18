@@ -187,7 +187,7 @@ fn blti_include(args: &mut VAN, ctx: &mut EvalContext<'_>) -> Option<ASTNode> {
         {
             cfg_if! {
                 if #[cfg(feature = "compile")] {
-                    match ctx.comp_map.get(Path::new(filename)).copied().clone() {
+                    match ctx.comp_map.get(Path::new(filename)).copied() {
                         None => crate::parser::file2ast(Path::new(filename), ctx.opts),
                         Some(compf) => ctx.load_from_compfile(&compf),
                     }

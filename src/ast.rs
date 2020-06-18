@@ -140,10 +140,22 @@ impl CmdEvalArgs {
         use crate::mangle_ast::MangleAST;
         use itertools::Itertools;
         args.into_iter()
-            .group_by(ASTNode::is_space)
-            .into_iter()
-            .filter(|x| !x.0)
-            .map(|x| x.1.collect::<VAN>().lift_ast().simplify())
+            .peekable()
+            .batching(|it| {
+                let mut ret = loop {
+                    let tmp = it.next()?;
+                    if !tmp.is_space() {
+                        break vec![tmp];
+                    }
+                };
+                while let Some(tmp) = it.peek() {
+                    if tmp.is_space() {
+                        break;
+                    }
+                    ret.push(it.next().unwrap());
+                }
+                Some(ret.lift_ast().simplify())
+            })
             .collect()
     }
 }
