@@ -30,7 +30,7 @@ fn timing_of_intern(print_timings: bool, tbfx: std::time::Instant, fname: &'stat
 }
 
 macro_rules! timing_of {
-    ($print_timings:ident, $name:path, $fn:expr) => {{
+    ($print_timings:expr, $name:path, $fn:expr) => {{
         let now = std::time::Instant::now();
         let ret = $fn;
         timing_of_intern($print_timings, now, stringify!($name));
@@ -81,11 +81,7 @@ fn main() {
     use crulz::ast::MangleAST;
 
     let opts = CrulzOptions::parse_args_default_or_exit();
-
-    let escc = opts.escc.unwrap_or(b'\\');
-    let escc_pass = opts.pass_escc;
     let vblvl = opts.verbose;
-    let print_timings = opts.timings;
 
     if opts.inputs.len() != 1 {
         eprintln!(
@@ -96,10 +92,13 @@ fn main() {
     }
 
     let input_file = opts.inputs[0].to_owned();
-    let pars_opts = parser::ParserOptions::new(escc, escc_pass);
+    let pars_opts = parser::Options {
+        escc: opts.escc.unwrap_or(b'\\'),
+        pass_escc: opts.pass_escc,
+    };
 
     let mut trs = timing_of!(
-        print_timings,
+        opts.timings,
         parser::file2ast,
         parser::file2ast(Path::new(&input_file), pars_opts).expect("failed to parse input file")
     );
@@ -135,7 +134,7 @@ fn main() {
     );
 
     timing_of!(
-        print_timings,
+        opts.timings,
         interp::eval,
         interp::eval(&mut trs, &mut ectx, comp_out,)
     );
@@ -149,7 +148,7 @@ fn main() {
         return;
     }
 
-    let blob = trs.to_vec(escc);
+    let blob = trs.to_vec(pars_opts.escc);
     let blob = &*blob;
 
     if let Some(x) = opts.output.as_ref() {

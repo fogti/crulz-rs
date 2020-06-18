@@ -1,6 +1,6 @@
 use crate::{
     ast::{ASTNode, CmdEvalArgs, GroupType, LiftAST, MangleAST, VAN},
-    parser::ParserOptions,
+    parser::Options as ParserOptions,
 };
 #[cfg(feature = "compile")]
 use anyhow::Context;

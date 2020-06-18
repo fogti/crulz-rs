@@ -4,16 +4,9 @@ use bstr::ByteSlice;
 // === parser options
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub struct ParserOptions {
-    escc: u8,
-    pass_escc: bool,
-}
-
-impl ParserOptions {
-    #[inline]
-    pub const fn new(escc: u8, pass_escc: bool) -> Self {
-        Self { escc, pass_escc }
-    }
+pub struct Options {
+    pub escc: u8,
+    pub pass_escc: bool,
 }
 
 #[derive(Clone, Debug, thiserror::Error)]
@@ -49,7 +42,7 @@ trait Parse: Sized {
     /// # Return value
     /// * `Ok(rest, parsed_obj)`
     /// * `Err(offending_code, description)`
-    fn parse(data: &[u8], opts: ParserOptions) -> Result<(&[u8], Self), ParserError<'_>>;
+    fn parse(data: &[u8], opts: Options) -> Result<(&[u8], Self), ParserError<'_>>;
 }
 
 // === parser utils
@@ -83,7 +76,7 @@ fn str_split_at_while(x: &[u8], f: impl FnMut(&u8) -> bool) -> (&[u8], &[u8]) {
 }
 
 /// escaped escape symbol or other escaped code: optional passthrough
-fn parse_escaped_const(i: u8, opts: ParserOptions) -> Option<ASTNode> {
+fn parse_escaped_const(i: u8, opts: Options) -> Option<ASTNode> {
     match i {
         b'{' | b'}' | b'$' => {}
         b'\n' => return Some(ASTNode::NullNode),
@@ -106,7 +99,7 @@ fn parse_escaped_const(i: u8, opts: ParserOptions) -> Option<ASTNode> {
 
 fn str_split_at_ctrl(
     data: &[u8],
-    opts: ParserOptions,
+    opts: Options,
     f_do_cont_at: impl Fn(&u8) -> bool,
 ) -> (&[u8], &[u8]) {
     str_split_at_while(data, |i| match i {
@@ -128,7 +121,7 @@ fn do_expect<'a>(origin: &'a [u8], rest: &'a [u8], c: u8) -> Result<&'a [u8], Pa
 }
 
 impl Parse for ASTNode {
-    fn parse(data: &[u8], opts: ParserOptions) -> Result<(&[u8], Self), ParserError<'_>> {
+    fn parse(data: &[u8], opts: Options) -> Result<(&[u8], Self), ParserError<'_>> {
         let escc = opts.escc;
         let mut iter = data.iter();
 
@@ -253,7 +246,7 @@ impl Parse for ASTNode {
 }
 
 impl Parse for VAN {
-    fn parse(mut data: &[u8], opts: ParserOptions) -> Result<(&[u8], Self), ParserError<'_>> {
+    fn parse(mut data: &[u8], opts: Options) -> Result<(&[u8], Self), ParserError<'_>> {
         let mut ret = VAN::new();
         while data.get(0).map(is_scope_end) == Some(false) {
             let (rest, node) = ASTNode::parse(data, opts)?;
@@ -267,7 +260,7 @@ impl Parse for VAN {
 // === main parser
 
 /// At top level, only parse things inside CmdEval's
-pub fn parse_toplevel(mut data: &[u8], opts: ParserOptions) -> Result<VAN, ParserError<'_>> {
+pub fn parse_toplevel(mut data: &[u8], opts: Options) -> Result<VAN, ParserError<'_>> {
     let mut ret = VAN::new();
     while !data.is_empty() {
         let mut cstp_has_nws = false;
@@ -291,7 +284,7 @@ pub fn parse_toplevel(mut data: &[u8], opts: ParserOptions) -> Result<VAN, Parse
     Ok(ret)
 }
 
-pub fn file2ast(filename: &std::path::Path, opts: ParserOptions) -> Result<VAN, anyhow::Error> {
+pub fn file2ast(filename: &std::path::Path, opts: Options) -> Result<VAN, anyhow::Error> {
     use anyhow::Context;
 
     let fh = readfilez::read_from_file(std::fs::File::open(filename))
