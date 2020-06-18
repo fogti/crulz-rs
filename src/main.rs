@@ -4,6 +4,7 @@ use gumdrop::Options;
 use std::{
     collections::HashMap,
     io::{self, Write},
+    path::{Path, PathBuf},
 };
 
 fn print_ast(step: &str, trs: &[crulz::ast::ASTNode]) {
@@ -68,9 +69,12 @@ struct CrulzOptions {
 
     #[cfg(feature = "compile")]
     #[options(
-        help = "if set, writes the processed output including defines to the given output file"
+        help = "if set, writes the packed processed output including defines to the given output file"
     )]
-    compile_output: Option<std::path::PathBuf>,
+    compile_output: Option<PathBuf>,
+
+    #[options(help = "if set, writes the evaluated data to the given file")]
+    output: Option<PathBuf>,
 }
 
 fn main() {
@@ -97,8 +101,7 @@ fn main() {
     let mut trs = timing_of!(
         print_timings,
         parser::file2ast,
-        parser::file2ast(std::path::Path::new(&input_file), pars_opts)
-            .expect("failed to parse input file")
+        parser::file2ast(Path::new(&input_file), pars_opts).expect("failed to parse input file")
     );
 
     if vblvl > 1 {
@@ -110,12 +113,10 @@ fn main() {
             let comp_map: HashMap<_, _> = opts.map_to_compilate
                 .into_iter()
                 .map(|y| {
-                    use std::path::PathBuf;
                     let tmp: Vec<_> = y.split('=').take(2).collect();
                     (PathBuf::from(tmp[0]), PathBuf::from(tmp[1]))
                 })
                 .collect();
-            use std::path::Path;
             let comp_map = comp_map.iter().map(|(a, b)| (Path::new(a), Path::new(b))).collect();
             timing_of!(
                 print_timings,
@@ -140,12 +141,22 @@ fn main() {
         print_ast("AST after evaluation", &trs);
     }
 
+    if opts.output.is_none() && opts.quiet {
+        // we don't need to write processed output
+        return;
+    }
+
+    let blob = trs.to_vec(escc);
+    let blob = &*blob;
+
+    if let Some(x) = opts.output.as_ref() {
+        std::fs::write(x, blob).expect("unable to write result to given output file");
+    }
+
     if !opts.quiet {
         let stdout = io::stdout();
         let mut stdout = stdout.lock();
-        stdout
-            .write_all(&*trs.to_vec(escc))
-            .expect("unable to write result");
+        stdout.write_all(blob).expect("unable to write result");
         stdout.flush().expect("unable to flush result");
     }
 }

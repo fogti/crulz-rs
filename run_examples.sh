@@ -16,6 +16,7 @@ if ! [ -x "$CRULZ" ]; then
 fi
 
 for i in examples/*; do
+  [ -f "$i" ] || continue
   echo "$i"
   cat "$i"
   "$CRULZ" "$@" "$i"
