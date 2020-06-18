@@ -2,14 +2,14 @@ use delegate_attr::delegate;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum GroupType {
     Strict,
     Loose,
     Dissolving,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ASTNode {
     NullNode,
 
@@ -111,7 +111,7 @@ impl LiftAST for VAN {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct CmdEvalArgs(pub VAN);
 
 impl std::iter::IntoIterator for CmdEvalArgs {

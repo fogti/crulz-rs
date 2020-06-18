@@ -6,6 +6,7 @@ use itertools::Itertools;
 // do NOT "use ASTNode::*;" here, because sometimes we want to "use ASTNodeClass::*;"
 
 pub trait MangleAST: Default {
+    /// transform this AST into a byte string
     fn to_vec(self, escc: u8) -> Vec<u8>;
 
     /// helper for MangleAST::simplify and interp::eval
@@ -21,7 +22,7 @@ pub trait MangleAST: Default {
         *self = self.take().simplify();
     }
 
-    /// this cleanup up the AST, opposite of two lift_ast invocations
+    /// performs a cleanup of the AST, opposite of two lift_ast invocations
     fn simplify(self) -> Self;
 
     /// this apply_arguments function applies the 'args' to the AST
@@ -49,13 +50,7 @@ impl MangleAST for ASTNode {
             }
             Argument { indirection, index } => std::iter::repeat(b'$')
                 .take(indirection + 1)
-                .chain(
-                    index
-                        .as_ref()
-                        .map(usize::to_string)
-                        .iter()
-                        .flat_map(|i| i.bytes()),
-                )
+                .chain(index.map(|i| i.to_string()).iter().flat_map(|i| i.bytes()))
                 .collect(),
             CmdEval(cmd, args) => {
                 let mut ret = Vec::new();
