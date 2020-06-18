@@ -5,24 +5,35 @@ use crate::{
 };
 #[cfg(feature = "compile")]
 use anyhow::Context;
-use atoi::atoi;
-use cfg_if::cfg_if;
-use phf::phf_map;
 use std::{collections::HashMap, path::Path};
+use {atoi::atoi, cfg_if::cfg_if, lazy_static::lazy_static};
 
-enum BuiltInFn {
+#[derive(Clone)]
+pub enum BuiltInFn {
     Manual(fn(&mut VAN, &mut EvalContext) -> Option<ASTNode>),
     Automatic(fn(VAN) -> Option<ASTNode>),
 }
 
+#[derive(Clone)]
+pub enum Definition {
+    BuiltIn {
+        argc: Option<usize>,
+        inner: BuiltInFn,
+    },
+}
+
 type DefinesMap = HashMap<Vec<u8>, (usize, ASTNode)>;
+type ProcDefinesMap = HashMap<Vec<u8>, (Option<usize>, BuiltInFn)>;
 type CompilatesMap<'a> = HashMap<&'a Path, &'a Path>;
 
-struct EvalContext<'a> {
+pub const SUPPORTS_COMPILATION: bool = std::cfg!(feature = "compile");
+
+pub struct EvalContext<'a> {
     defs: DefinesMap,
+    procdefs: ProcDefinesMap,
     opts: ParserOptions,
     #[cfg_attr(not(feature = "compile"), allow(unused))]
-    comp_map: &'a CompilatesMap<'a>,
+    comp_map: CompilatesMap<'a>,
 }
 
 #[cfg(feature = "compile")]
@@ -94,6 +105,25 @@ fn eval_foreach(
     )
 }
 
+fn unpack(x: &mut ASTNode, ctx: &mut EvalContext<'_>) -> Option<Vec<u8>> {
+    x.eval(ctx);
+    x.conv_to_constant().map(|y| y.into_owned())
+}
+
+fn uneg(mut arg: ASTNode) -> ASTNode {
+    if let ASTNode::Grouped(ref mut gt, _) = arg {
+        *gt = GroupType::Dissolving;
+    }
+    arg
+}
+
+fn fe_elems(x: &ASTNode) -> Option<VAN> {
+    match x {
+        ASTNode::Grouped(_, ref elems) => Some(elems.clone()),
+        _ => None,
+    }
+}
+
 macro_rules! define_blti {
     (($args:pat | $ac:expr, $ctx:pat) $body:ident) => {{
         /* fn blti($args: &mut VAN, $ctx: &mut EvalContext<'_>) -> Option<ASTNode> $body */
@@ -115,43 +145,30 @@ macro_rules! define_blti {
 
 macro_rules! define_bltins {
     ($($name:expr => $a2:tt $body:tt,)*) => {
-        phf_map! { $($name => define_blti!($a2 $body),)* }
+        maplit::hashmap! {
+            $(($name.to_vec()) => define_blti!($a2 $body),)*
+        }
     }
 }
 
-fn unpack(x: &mut ASTNode, ctx: &mut EvalContext<'_>) -> Option<Vec<u8>> {
-    x.eval(ctx);
-    x.conv_to_constant().map(|y| y.into_owned())
+lazy_static! {
+    static ref BUILTINS: ProcDefinesMap = {
+        define_bltins! {
+            b"add"         => (args | 2     ) blti_add,
+            b"def"         => (args    , ctx) blti_def,
+            b"def-lazy"    => (args    , ctx) blti_def_lazy,
+            b"foreach"     => (args | 2, ctx) blti_foreach,
+            b"foreach-raw" => (args | 2, ctx) blti_foreach_raw,
+            b"fseq"        => (args    , ctx) blti_fseq,
+            b"include"     => (args | 1, ctx) blti_include,
+            b"pass"        => (args         ) blti_pass,
+            b"suppress"    => (_args        ) blti_suppress,
+            b"undef"       => (args | 1, ctx) blti_undef,
+            b"une"         => (args         ) blti_une,
+            b"unee"        => (args         ) blti_unee,
+        }
+    };
 }
-
-fn uneg(mut arg: ASTNode) -> ASTNode {
-    if let ASTNode::Grouped(ref mut gt, _) = arg {
-        *gt = GroupType::Dissolving;
-    }
-    arg
-}
-
-fn fe_elems(x: &ASTNode) -> Option<VAN> {
-    match x {
-        ASTNode::Grouped(_, ref elems) => Some(elems.clone()),
-        _ => None,
-    }
-}
-
-static BUILTINS: phf::Map<&'static [u8], (Option<usize>, BuiltInFn)> = define_bltins! {
-    b"add"         => (args | 2     ) blti_add,
-    b"def"         => (args    , ctx) blti_def,
-    b"def-lazy"    => (args    , ctx) blti_def_lazy,
-    b"foreach"     => (args | 2, ctx) blti_foreach,
-    b"foreach-raw" => (args | 2, ctx) blti_foreach_raw,
-    b"fseq"        => (args    , ctx) blti_fseq,
-    b"include"     => (args | 1, ctx) blti_include,
-    b"pass"        => (args         ) blti_pass,
-    b"suppress"    => (_args        ) blti_suppress,
-    b"undef"       => (args | 1, ctx) blti_undef,
-    b"une"         => (args         ) blti_une,
-    b"unee"        => (args         ) blti_unee,
-};
 
 fn blti_suppress(_args: VAN) -> Option<ASTNode> {
     Some(ASTNode::NullNode)
@@ -170,7 +187,7 @@ fn blti_include(args: &mut VAN, ctx: &mut EvalContext<'_>) -> Option<ASTNode> {
         {
             cfg_if! {
                 if #[cfg(feature = "compile")] {
-                    match ctx.comp_map.get(Path::new(filename)) {
+                    match ctx.comp_map.get(Path::new(filename)).copied().clone() {
                         None => crate::parser::file2ast(Path::new(filename), ctx.opts),
                         Some(compf) => ctx.load_from_compfile(&compf),
                     }
@@ -285,10 +302,11 @@ fn eval_cmd(cmd: &mut VAN, args: &mut CmdEvalArgs, mut ctx: &mut EvalContext) ->
     };
 
     // evaluate command
-    if let Some((a, x)) = BUILTINS.get(&**cmd) {
+    let cmd: &[u8] = &*cmd;
+    if let Some((a, x)) = ctx.procdefs.get(cmd) {
         match a {
             Some(n) if args.len() != *n => None,
-            _ => match x {
+            _ => match x.clone() {
                 BuiltInFn::Manual(y) => y(&mut args.0, &mut ctx),
                 BuiltInFn::Automatic(y) => {
                     for i in args.iter_mut() {
@@ -299,7 +317,7 @@ fn eval_cmd(cmd: &mut VAN, args: &mut CmdEvalArgs, mut ctx: &mut EvalContext) ->
             },
         }
     } else {
-        let (n, mut x) = ctx.defs.get(&*cmd)?.clone();
+        let (n, mut x) = ctx.defs.get(cmd)?.clone();
         *args = CmdEvalArgs(
             args.take()
                 .into_iter()
@@ -360,21 +378,23 @@ impl Eval for CmdEvalArgs {
     }
 }
 
-pub fn eval(
-    data: &mut VAN,
-    opts: ParserOptions,
-    comp_map: &CompilatesMap<'_>,
-    comp_out: Option<&std::path::Path>,
-) {
+impl<'a> EvalContext<'a> {
+    #[inline]
+    pub fn new(opts: ParserOptions, comp_map: CompilatesMap<'a>) -> Self {
+        Self {
+            defs: HashMap::new(),
+            procdefs: BUILTINS.clone(),
+            opts,
+            comp_map,
+        }
+    }
+}
+
+pub fn eval(data: &mut VAN, ctx: &mut EvalContext<'_>, comp_out: Option<&std::path::Path>) {
     use crate::mangle_ast::MangleASTExt;
-    let mut ctx = EvalContext {
-        defs: HashMap::new(),
-        opts,
-        comp_map,
-    };
     let mut cplx = data.get_complexity();
     loop {
-        data.eval(&mut ctx);
+        data.eval(ctx);
         *data = data.take().simplify().compact_toplevel();
         let new_cplx = data.get_complexity();
         if new_cplx == cplx {

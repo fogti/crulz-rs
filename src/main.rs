@@ -108,34 +108,37 @@ fn main() {
         print_ast("AST before evaluation", &trs);
     }
 
+    #[allow(unused_assignments, unused_mut)]
+    let mut comp_map = HashMap::<PathBuf, PathBuf>::new();
+    #[allow(unused_assignments, unused_mut)]
+    let mut comp_out = None;
+
     cfg_if::cfg_if! {
         if #[cfg(feature = "compile")] {
-            let comp_map: HashMap<_, _> = opts.map_to_compilate
+            comp_map = opts.map_to_compilate
                 .into_iter()
                 .map(|y| {
                     let tmp: Vec<_> = y.split('=').take(2).collect();
                     (PathBuf::from(tmp[0]), PathBuf::from(tmp[1]))
                 })
                 .collect();
-            let comp_map = comp_map.iter().map(|(a, b)| (Path::new(a), Path::new(b))).collect();
-            timing_of!(
-                print_timings,
-                interp::eval,
-                interp::eval(
-                    &mut trs,
-                    pars_opts,
-                    &comp_map,
-                    opts.compile_output.as_ref().map(|x| Path::new(x)),
-                )
-            );
-        } else {
-            timing_of!(
-                print_timings,
-                interp::eval,
-                interp::eval(&mut trs, pars_opts, &HashMap::new(), None)
-            );
+            comp_out = opts.compile_output.as_ref().map(|x| Path::new(x));
         }
-    }
+    };
+
+    let mut ectx = interp::EvalContext::new(
+        pars_opts,
+        comp_map
+            .iter()
+            .map(|(a, b)| (Path::new(a), Path::new(b)))
+            .collect(),
+    );
+
+    timing_of!(
+        print_timings,
+        interp::eval,
+        interp::eval(&mut trs, &mut ectx, comp_out,)
+    );
 
     if vblvl > 0 {
         print_ast("AST after evaluation", &trs);

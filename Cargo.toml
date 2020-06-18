@@ -21,12 +21,14 @@ delegate-attr = "0.2"
 flate2 = { version = "1.0", optional = true }
 gumdrop = "0.8"
 itertools = "0.9"
-phf = { version = "0.8", features = ["macros"] }
+lazy_static = "1.4"
+maplit = "1.0"
 readfilez = "0.2"
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "1.0"
 
 [features]
+default = [ "compile" ]
 compile = [ "bincode", "flate2" ]
 
 [profile.release]

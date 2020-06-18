@@ -66,10 +66,12 @@ fn str_slice_between<'a>(whole_buffer_start: &'a [u8], post_part: &'a [u8]) -> &
     &whole_buffer_start[..get_offset_of(whole_buffer_start, post_part)]
 }
 
-static SCOPE_MARKERS: phf::Map<u8, (u8, GroupType)> = phf::phf_map! {
-    b'(' => (b')', GroupType::Strict),
-    b'{' => (b'}', GroupType::Loose),
-};
+lazy_static::lazy_static! {
+    static ref SCOPE_MARKERS: std::collections::HashMap<u8, (u8, GroupType)> = maplit::hashmap! {
+        b'(' => (b')', GroupType::Strict),
+        b'{' => (b'}', GroupType::Loose),
+    };
+}
 
 fn is_scope_end(x: &u8) -> bool {
     SCOPE_MARKERS.values().any(|(eogm, _)| eogm == x)
