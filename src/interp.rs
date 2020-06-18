@@ -9,7 +9,12 @@ use {atoi::atoi, cfg_if::cfg_if, lazy_static::lazy_static};
 
 #[derive(Clone)]
 pub enum BuiltInFn {
+    /// manual built-in functions decide for themselves which arguments get evaluated
+    /// and are called with a reference to the evaluation context
     Manual(fn(&mut VAN, &mut EvalContext) -> Option<ASTNode>),
+
+    /// automatic built-in functions are called with fully evaluated arguments and
+    /// without a reference to the evaluation context
     Automatic(fn(VAN) -> Option<ASTNode>),
 }
 
