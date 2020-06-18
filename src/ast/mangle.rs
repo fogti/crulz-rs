@@ -1,4 +1,4 @@
-use crate::ast::{ASTNode, CmdEvalArgs, GroupType, LiftAST, VAN};
+use super::{ASTNode, CmdEvalArgs, GroupType, LiftAST, VAN};
 use bstr::ByteSlice;
 use delegate_attr::delegate;
 use itertools::Itertools;
@@ -318,69 +318,5 @@ impl MangleASTExt for VAN {
                 Some(ret)
             })
             .collect()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::ASTNode::*;
-    use super::*;
-
-    #[test]
-    fn test_simplify() {
-        let ast = vec![
-            Constant {
-                non_space: true,
-                data: b"a".to_vec().into(),
-            },
-            Constant {
-                non_space: true,
-                data: b"b".to_vec().into(),
-            }
-            .lift_ast()
-            .lift_ast()
-            .lift_ast()
-            .lift_ast(),
-            Constant {
-                non_space: true,
-                data: b"c".to_vec().into(),
-            },
-        ]
-        .lift_ast()
-        .lift_ast()
-        .lift_ast();
-        assert_eq!(
-            ast.simplify(),
-            Constant {
-                non_space: true,
-                data: b"abc".to_vec().into()
-            }
-        );
-    }
-
-    #[test]
-    fn test_compact_tl() {
-        let ast = vec![
-            Constant {
-                non_space: true,
-                data: b"a".to_vec().into(),
-            },
-            Constant {
-                non_space: false,
-                data: b"b".to_vec().into(),
-            },
-            Constant {
-                non_space: true,
-                data: b"c".to_vec().into(),
-            },
-        ]
-        .compact_toplevel();
-        assert_eq!(
-            ast,
-            vec![Constant {
-                non_space: true,
-                data: b"abc".to_vec().into()
-            }]
-        );
     }
 }

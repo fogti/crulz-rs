@@ -2,6 +2,11 @@ use delegate_attr::delegate;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
+mod mangle;
+mod tests;
+
+pub use mangle::{MangleAST, MangleASTExt};
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum GroupType {
     Strict,
@@ -149,7 +154,6 @@ impl std::iter::FromIterator<ASTNode> for CmdEvalArgs {
 impl CmdEvalArgs {
     /// constructs `CmdEvalArgs` from a `VAN` with white-space as arguments delimiter
     pub fn from_wsdelim(args: VAN) -> Self {
-        use crate::mangle_ast::MangleAST;
         use itertools::Itertools;
         args.into_iter()
             .peekable()
@@ -179,48 +183,4 @@ impl CmdEvalArgs {
     pub fn iter_mut(&mut self) -> std::slice::IterMut<ASTNode> { }
     pub fn len(&self) -> usize { }
     pub fn is_empty(&self) -> bool { }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_args2unspaced() {
-        use ASTNode::*;
-        assert_eq!(
-            CmdEvalArgs::from_wsdelim(vec![
-                Constant {
-                    non_space: true,
-                    data: b"a".to_vec().into()
-                },
-                Constant {
-                    non_space: false,
-                    data: b"a".to_vec().into()
-                },
-                Constant {
-                    non_space: true,
-                    data: b"a".to_vec().into()
-                },
-                Constant {
-                    non_space: true,
-                    data: b"a".to_vec().into()
-                },
-                Constant {
-                    non_space: false,
-                    data: b"a".to_vec().into()
-                }
-            ]),
-            CmdEvalArgs(vec![
-                Constant {
-                    non_space: true,
-                    data: b"a".to_vec().into()
-                },
-                Constant {
-                    non_space: true,
-                    data: b"aa".to_vec().into()
-                }
-            ])
-        );
-    }
 }

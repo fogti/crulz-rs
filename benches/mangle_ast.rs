@@ -1,9 +1,6 @@
 #![feature(test)]
 
-use crulz::{
-    ast::{ASTNode::*, LiftAST},
-    mangle_ast::{MangleAST, MangleASTExt},
-};
+use crulz::ast::{ASTNode::*, LiftAST, MangleAST, MangleASTExt};
 extern crate test;
 
 #[bench]

@@ -78,7 +78,7 @@ struct CrulzOptions {
 }
 
 fn main() {
-    use crate::mangle_ast::MangleAST;
+    use crulz::ast::MangleAST;
 
     let opts = CrulzOptions::parse_args_default_or_exit();
 
