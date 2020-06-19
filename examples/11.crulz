@@ -4,4 +4,3 @@
 })\
 \foreach({a b c} x)\
 \foreach({(a b) (c d)} {$0 = $1; })
-\foreach-raw({((a)(b))((c)(d))} {\(une $0) = \(une $1); })
