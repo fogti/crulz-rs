@@ -9,7 +9,7 @@ pub trait Mangle: Default {
     /// transform this AST into a byte string
     fn to_vec(self, escc: u8) -> Vec<u8>;
 
-    /// helper for [`Mangle::simplify`] and interp::eval
+    /// helper for [`Mangle::simplify`] and [`interp::eval`](crate::interp::eval)
     fn get_complexity(&self) -> usize;
 
     #[inline(always)]
@@ -26,6 +26,7 @@ pub trait Mangle: Default {
     fn simplify(self) -> Self;
 
     /// this apply_arguments function applies the 'args' to the AST
+    ///
     /// # Return value
     /// * `Err(idx)`: the first applied index which wasn't present in 'args'
     fn apply_arguments_inplace(&mut self, args: &CmdEvalArgs) -> Result<(), usize>;
