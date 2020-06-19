@@ -1,1 +1,1 @@
-\def(a 0 (1x ({-}) x))\def(b 3 ($2 $1 $0))\b(\unee(\a))\a
+\def(a (1x ({-}) x))\def(b 3 ($2 $1 $0))\b(\unee(\a))\a

@@ -19,11 +19,6 @@ pub enum GroupType {
 pub enum Node {
     NullNode,
 
-    Constant {
-        non_space: bool,
-        data: bstr::BString,
-    },
-
     Argument {
         /// `= (count of '$'s) - 1`
         indirection: usize,
@@ -31,14 +26,24 @@ pub enum Node {
         index: Option<usize>,
     },
 
+    CmdEval {
+        cmd: Vec<Node>,
+        args: CmdEvalArgs,
+    },
+
+    Constant {
+        non_space: bool,
+        data: bstr::BString,
+    },
+
     Grouped {
         typ: GroupType,
         elems: Vec<Node>,
     },
 
-    CmdEval {
-        cmd: Vec<Node>,
-        args: CmdEvalArgs,
+    Lambda {
+        argc: usize,
+        body: Box<Node>,
     },
 }
 
@@ -94,6 +99,32 @@ impl Node {
                 }
             }
             _ => None,
+        }
+    }
+
+    /// this function applies the 'args' to the AST,
+    /// and shifts all non-evaluated args "to the left" with `n = args.len()`
+    ///
+    /// as this function shifts remaining `Argument`s, it is not reentrant, thus
+    /// a second application will further modify the remaining `Argument`s, you
+    /// probably don't want this.
+    ///
+    /// if the remaining AST should be finally called, [`Mangle::apply_arguments_inplace`]
+    /// should be called, even if no applicable arguments remain, to
+    /// * check if any non-indirect `Argument`s are left over
+    /// * reduce the indirection count of all remaining `Argument`s
+    pub fn curry_inplace(&mut self, xargs: &CmdEvalArgs) {
+        if let Node::Lambda {
+            ref mut argc,
+            ref mut body,
+        } = self
+        {
+            if *argc != 0 {
+                *argc = argc.saturating_sub(xargs.len());
+                body.curry2_inplace(xargs);
+            }
+        } else {
+            self.curry2_inplace(xargs);
         }
     }
 }
@@ -171,7 +202,15 @@ impl CmdEvalArgs {
                     }
                     ret.push(it.next().unwrap());
                 }
-                Some(ret.lift_ast().simplify())
+                let mut ret = ret.lift_ast().simplify();
+                if let Node::Grouped { ref mut typ, .. } = ret {
+                    if *typ == GroupType::Dissolving {
+                        // fix splitting of white-space separated arguments
+                        // bc dissolving would be inlined and expanded, we don't want that
+                        *typ = GroupType::Loose;
+                    }
+                }
+                Some(ret)
             })
             .collect()
     }

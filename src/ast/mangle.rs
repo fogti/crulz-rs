@@ -25,11 +25,19 @@ pub trait Mangle: Default {
     /// performs a cleanup of the AST, opposite of two lift_ast invocations
     fn simplify(self) -> Self;
 
-    /// this apply_arguments function applies the 'args' to the AST
+    /// this function applies the 'args' to the AST
+    ///
+    /// this function is partially reentrant, e.g. it leaves `self` in a half-consistent
+    /// state in case of failure, thus it may be desirable to `self.clone()` before applying
+    /// this function
     ///
     /// # Return value
     /// * `Err(idx)`: the first applied index which wasn't present in 'args'
     fn apply_arguments_inplace(&mut self, args: &CmdEvalArgs) -> Result<(), usize>;
+
+    /// helper function for `crate::ast::Node::curry_inplace`
+    #[doc(hidden)]
+    fn curry2_inplace(&mut self, args: &CmdEvalArgs);
 }
 
 impl Mangle for ASTNode {
@@ -62,6 +70,16 @@ impl Mangle for ASTNode {
                 ret.push(b')');
                 ret
             }
+            Lambda { argc, body } => {
+                let mut ret = Vec::new();
+                ret.push(escc);
+                ret.extend_from_slice(b"(lambda ");
+                ret.extend_from_slice(argc.to_string().as_bytes());
+                ret.push(b' ');
+                ret.extend_from_slice(&body.to_vec(escc)[..]);
+                ret.push(b')');
+                ret
+            }
         }
     }
 
@@ -69,8 +87,9 @@ impl Mangle for ASTNode {
         use ASTNode::*;
         match &self {
             NullNode => 0,
-            Constant { data, .. } => 1 + data.len(),
             Argument { indirection, .. } => 3 + indirection,
+            CmdEval { cmd, args } => 1 + cmd.get_complexity() + args.get_complexity(),
+            Constant { data, .. } => 1 + data.len(),
             Grouped { typ, elems } => {
                 (match *typ {
                     GroupType::Dissolving => 0,
@@ -78,7 +97,7 @@ impl Mangle for ASTNode {
                     GroupType::Strict => 2,
                 }) + elems.get_complexity()
             }
-            CmdEval { cmd, args } => 1 + cmd.get_complexity() + args.get_complexity(),
+            Lambda { body, .. } => 2 + body.get_complexity(),
         }
     }
 
@@ -123,6 +142,7 @@ impl Mangle for ASTNode {
                     cmd.simplify_inplace();
                     args.simplify_inplace();
                 }
+                Lambda { ref mut body, .. } => body.simplify_inplace(),
                 _ => break,
             }
             let new_cplx = self.get_complexity();
@@ -165,9 +185,47 @@ impl Mangle for ASTNode {
                 cmd.apply_arguments_inplace(xargs)?;
                 args.apply_arguments_inplace(xargs)?;
             }
+            Lambda { ref mut body, .. } => body.apply_arguments_inplace(xargs)?,
             _ => {}
         }
         Ok(())
+    }
+
+    #[doc(hidden)]
+    fn curry2_inplace(&mut self, xargs: &CmdEvalArgs) {
+        use ASTNode::*;
+        match self {
+            Argument {
+                indirection: 0,
+                index,
+            } => {
+                *self = match *index {
+                    Some(index) => match xargs.0.get(index) {
+                        Some(x) => x.clone(),
+                        None => Argument {
+                            indirection: 0,
+                            index: Some(index - xargs.len()),
+                        },
+                    },
+                    None => Constant {
+                        non_space: true,
+                        data: vec![b'$'].into(),
+                    },
+                };
+            }
+
+            Grouped { ref mut elems, .. } => elems.curry2_inplace(xargs),
+            CmdEval {
+                ref mut cmd,
+                ref mut args,
+            } => {
+                cmd.curry2_inplace(xargs);
+                args.curry2_inplace(xargs);
+            }
+
+            // ignore sub-lambdas
+            _ => {}
+        }
     }
 }
 
@@ -191,11 +249,8 @@ impl Mangle for VAN {
                     false
                 }
                 ASTNode::Constant { data, .. } if data.is_empty() => false,
-                ASTNode::Constant { .. }
-                | ASTNode::Grouped { .. }
-                | ASTNode::Argument { .. }
-                | ASTNode::CmdEval { .. } => true,
                 ASTNode::NullNode => false,
+                _ => true,
             })
             .peekable()
             .batching(|it| {
@@ -245,6 +300,12 @@ impl Mangle for VAN {
         }
         Ok(())
     }
+
+    fn curry2_inplace(&mut self, args: &CmdEvalArgs) {
+        for i in self.iter_mut() {
+            i.curry2_inplace(args);
+        }
+    }
 }
 
 impl Mangle for CmdEvalArgs {
@@ -278,6 +339,9 @@ impl Mangle for CmdEvalArgs {
 
     #[delegate(self.0)]
     fn apply_arguments_inplace(&mut self, args: &CmdEvalArgs) -> Result<(), usize> {}
+
+    #[delegate(self.0)]
+    fn curry2_inplace(&mut self, args: &CmdEvalArgs) {}
 }
 
 pub trait MangleExt: Mangle {
