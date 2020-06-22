@@ -129,6 +129,21 @@ impl Node {
     }
 }
 
+pub fn while_cplx_changes<F, T>(data: &mut T, mut f: F)
+where
+    F: FnMut(&mut T) -> bool,
+    T: Mangle,
+{
+    let mut cplx = data.get_complexity();
+    while f(data) {
+        let new_cplx = data.get_complexity();
+        if new_cplx == cplx {
+            break;
+        }
+        cplx = new_cplx;
+    }
+}
+
 #[doc(hidden)]
 pub trait Lift {
     type LiftT: Lift;

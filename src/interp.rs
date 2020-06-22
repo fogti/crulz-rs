@@ -499,16 +499,11 @@ impl<'a> EvalContext<'a> {
 }
 
 pub fn eval(data: &mut VAN, ctx: &mut EvalContext<'_>, _comp_out: Option<&std::path::Path>) {
-    let mut cplx = data.get_complexity();
-    loop {
+    crate::ast::while_cplx_changes(data, |data| {
         data.eval(ctx);
         *data = data.take().simplify().compact_toplevel();
-        let new_cplx = data.get_complexity();
-        if new_cplx == cplx {
-            break;
-        }
-        cplx = new_cplx;
-    }
+        true
+    });
     cfg_if! {
         if #[cfg(feature = "compile")] {
             if let Some(comp_out) = _comp_out {

@@ -103,9 +103,8 @@ impl Mangle for ASTNode {
 
     fn simplify(mut self) -> Self {
         use ASTNode::*;
-        let mut cplx = self.get_complexity();
-        loop {
-            match &mut self {
+        crate::ast::while_cplx_changes(&mut self, |this| {
+            match this {
                 Grouped {
                     ref mut typ,
                     ref mut elems,
@@ -113,14 +112,14 @@ impl Mangle for ASTNode {
                     match elems.len() {
                         0 => {
                             if *typ != GroupType::Strict {
-                                self = NullNode;
-                                break;
+                                *this = NullNode;
+                                return false;
                             }
                         }
                         1 => {
                             let y = elems[0].take().simplify();
                             if *typ != GroupType::Strict {
-                                self = y;
+                                *this = y;
                             } else if let Grouped {
                                 typ: GroupType::Dissolving,
                                 elems: z,
@@ -143,14 +142,10 @@ impl Mangle for ASTNode {
                     args.simplify_inplace();
                 }
                 Lambda { ref mut body, .. } => body.simplify_inplace(),
-                _ => break,
+                _ => return false,
             }
-            let new_cplx = self.get_complexity();
-            if new_cplx >= cplx {
-                break;
-            }
-            cplx = new_cplx;
-        }
+            true
+        });
         self
     }
 
