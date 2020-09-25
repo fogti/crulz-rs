@@ -1,5 +1,5 @@
 use crate::{
-    ast::{CmdEvalArgs, GroupType, Lift as _, Mangle, MangleExt as _, Node as ASTNode, VAN},
+    ast::{compact_toplevel, CmdEvalArgs, GroupType, Lift as _, Mangle, Node as ASTNode, VAN},
     parser::Options as ParserOptions,
 };
 #[cfg(feature = "compile")]
@@ -405,7 +405,7 @@ fn eval_cmd(cmd: &mut VAN, args: &mut CmdEvalArgs, ctx: &mut EvalContext) -> Opt
         i.eval(ctx);
     }
     // allow partial evaluation of command name
-    *cmd = cmd.take().simplify().compact_toplevel();
+    *cmd = compact_toplevel(cmd.take());
     match cmd.clone().lift_ast().simplify() {
         ASTNode::Constant {
             non_space: true,
@@ -501,7 +501,7 @@ impl<'a> EvalContext<'a> {
 pub fn eval(data: &mut VAN, ctx: &mut EvalContext<'_>, _comp_out: Option<&std::path::Path>) {
     crate::ast::while_cplx_changes(data, |data| {
         data.eval(ctx);
-        *data = data.take().simplify().compact_toplevel();
+        *data = compact_toplevel(data.take());
         true
     });
     cfg_if! {

@@ -5,7 +5,7 @@ use std::borrow::Cow;
 mod mangle;
 mod tests;
 
-pub use mangle::{Mangle, MangleExt};
+pub use mangle::{compact_toplevel, Mangle};
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum GroupType {

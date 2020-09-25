@@ -73,7 +73,7 @@ fn test_simplify() {
 
 #[test]
 fn test_compact_tl() {
-    let ast = vec![
+    let ast = compact_toplevel(vec![
         Constant {
             non_space: true,
             data: b"a".to_vec().into(),
@@ -86,8 +86,7 @@ fn test_compact_tl() {
             non_space: true,
             data: b"c".to_vec().into(),
         },
-    ]
-    .compact_toplevel();
+    ]);
     assert_eq!(
         ast,
         vec![Constant {

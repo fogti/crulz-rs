@@ -51,7 +51,8 @@ impl Mangle for ASTNode {
                 if typ == GroupType::Strict {
                     [b"(", &inner[..], b")"]
                         .iter()
-                        .flat_map(|i| (*i).bytes())
+                        .map(core::ops::Deref::deref)
+                        .flat_map(ByteSlice::bytes)
                         .collect()
                 } else {
                     inner
@@ -231,12 +232,12 @@ impl Mangle for VAN {
 
     #[inline]
     fn get_complexity(&self) -> usize {
-        self.iter().map(|i| i.get_complexity()).sum()
+        self.iter().map(Mangle::get_complexity).sum()
     }
 
     fn simplify(self) -> Self {
         self.into_iter()
-            .map(|i| i.simplify())
+            .map(Mangle::simplify)
             .filter(|i| match i {
                 ASTNode::Grouped { typ, elems }
                     if elems.is_empty() && *typ != GroupType::Strict =>
@@ -339,44 +340,37 @@ impl Mangle for CmdEvalArgs {
     fn curry2_inplace(&mut self, args: &CmdEvalArgs) {}
 }
 
-pub trait MangleExt: Mangle {
-    fn compact_toplevel(self) -> Self;
-}
-
-impl MangleExt for VAN {
-    fn compact_toplevel(self) -> Self {
-        // we are at the top level, wo can inline non-strict groups
-        // and then put all constants heaps into single constants
-        self.into_iter()
-            // 1. inline non-strict groups
-            .flat_map(|i| match i {
-                ASTNode::NullNode => vec![],
-                ASTNode::Grouped { typ, elems } if typ != GroupType::Strict => {
-                    elems.compact_toplevel()
-                }
-                _ => vec![i],
-            })
-            // 2. aggressive concat constant-after-constants
-            .peekable()
-            .batching(|it| {
-                let mut ret = it.next()?;
-                if let ASTNode::Constant {
-                    non_space: ref mut rnsp,
-                    data: ref mut rdat,
-                } = &mut ret
+pub fn compact_toplevel(x: VAN) -> VAN {
+    // we are at the top level, wo can inline non-strict groups
+    // and then put all constants heaps into single constants
+    x.simplify()
+        .into_iter()
+        // 1. inline non-strict groups
+        .flat_map(|i| match i {
+            ASTNode::NullNode => vec![],
+            ASTNode::Grouped { typ, elems } if typ != GroupType::Strict => compact_toplevel(elems),
+            _ => vec![i],
+        })
+        // 2. aggressive concat constant-after-constants
+        .peekable()
+        .batching(|it| {
+            let mut ret = it.next()?;
+            if let ASTNode::Constant {
+                non_space: ref mut rnsp,
+                data: ref mut rdat,
+            } = &mut ret
+            {
+                while let Some(ASTNode::Constant {
+                    non_space: nsp,
+                    data: ref dat,
+                }) = it.peek()
                 {
-                    while let Some(ASTNode::Constant {
-                        non_space: nsp,
-                        data: ref dat,
-                    }) = it.peek()
-                    {
-                        *rnsp |= nsp;
-                        rdat.extend_from_slice(&dat[..]);
-                        it.next();
-                    }
+                    *rnsp |= nsp;
+                    rdat.extend_from_slice(&dat[..]);
+                    it.next();
                 }
-                Some(ret)
-            })
-            .collect()
-    }
+            }
+            Some(ret)
+        })
+        .collect()
 }
