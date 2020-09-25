@@ -1,4 +1,4 @@
-use super::{CmdEvalArgs, GroupType, Lift as _, Node as ASTNode, VAN};
+use super::{CmdEvalArgs, GroupType, Node as ASTNode, VAN};
 use delegate_attr::delegate;
 use itertools::Itertools;
 
@@ -122,6 +122,8 @@ impl Mangle for ASTNode {
                             } = y
                             {
                                 *elems = z;
+                            } else if y == NullNode {
+                                elems.clear();
                             } else {
                                 // swap it back, omit clone
                                 elems[0] = y;
@@ -234,49 +236,49 @@ impl Mangle for VAN {
     }
 
     fn simplify(self) -> Self {
-        self.into_iter()
-            .map(Mangle::simplify)
-            .filter(|i| *i != ASTNode::NullNode)
-            .peekable()
-            .batching(|it| {
-                use ASTNode::*;
-                let mut base = it.next()?;
-                match &mut base {
+        let mut ret = VAN::with_capacity(self.len());
+        let mut it = self.into_iter().map(Mangle::simplify);
+
+        use ASTNode::*;
+        let mut litem = match it.next() {
+            Some(x) => x,
+            None => return VAN::new(),
+        };
+        for mut citem in it {
+            match (&mut litem, &mut citem) {
+                (_, NullNode) => {}
+                (
                     Constant {
                         non_space,
                         ref mut data,
-                    } => {
-                        while let Some(Constant {
-                            non_space: ins2,
-                            data: ref y,
-                        }) = it.peek()
-                        {
-                            if non_space != ins2 {
-                                break;
-                            }
-                            data.extend_from_slice(&y[..]);
-                            it.next();
-                        }
-                    }
+                    },
+                    Constant {
+                        non_space: ins2,
+                        data: ref y,
+                    },
+                ) if non_space == ins2 => {
+                    data.extend_from_slice(&y[..]);
+                }
+                (
                     Grouped {
                         typ: GroupType::Dissolving,
                         ref mut elems,
-                    } => {
-                        while let Some(Grouped { typ, elems: ref y }) = it.peek() {
-                            if *typ != GroupType::Dissolving {
-                                break;
-                            }
-                            elems.extend_from_slice(&y[..]);
-                            it.next();
-                        }
-                        return Some(std::mem::take(elems));
-                    }
-                    _ => {}
+                    },
+                    Grouped {
+                        typ: GroupType::Dissolving,
+                        elems: ref mut y,
+                    },
+                ) => {
+                    elems.append(y);
                 }
-                Some(base.lift_ast())
-            })
-            .flatten()
-            .collect()
+                (a, b) => {
+                    // ret <<- litem <- citem
+                    ret.push(std::mem::replace(a, b.take()));
+                }
+            }
+        }
+        ret.push(litem);
+        ret
     }
 
     fn apply_arguments_inplace(&mut self, args: &CmdEvalArgs) -> Result<(), usize> {
@@ -304,16 +306,13 @@ impl Mangle for CmdEvalArgs {
     fn simplify(self) -> Self {
         self.into_iter()
             .map(Mangle::simplify)
-            .flat_map(|i| {
-                if let ASTNode::Grouped {
+            .flat_map(|i| match i {
+                ASTNode::NullNode => vec![],
+                ASTNode::Grouped {
                     typ: GroupType::Dissolving,
                     elems,
-                } = i
-                {
-                    elems
-                } else {
-                    i.lift_ast()
-                }
+                } => elems,
+                _ => vec![i],
             })
             .collect()
     }
@@ -364,10 +363,11 @@ pub fn compact_toplevel(x: VAN) -> VAN {
                     typ: GroupType::Dissolving,
                     ref mut elems,
                 } => {
-                    while let Some(Grouped { typ, elems: ref y }) = it.peek() {
-                        if *typ != GroupType::Dissolving {
-                            break;
-                        }
+                    while let Some(Grouped {
+                        typ: GroupType::Dissolving,
+                        elems: ref y,
+                    }) = it.peek()
+                    {
                         elems.extend_from_slice(&y[..]);
                         it.next();
                     }

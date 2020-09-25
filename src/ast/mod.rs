@@ -201,33 +201,39 @@ impl std::iter::FromIterator<Node> for CmdEvalArgs {
 impl CmdEvalArgs {
     /// constructs `CmdEvalArgs` from a `VAN` with white-space as arguments delimiter
     pub fn from_wsdelim(args: VAN) -> Self {
-        use itertools::Itertools;
-        args.into_iter()
-            .peekable()
-            .batching(|it| {
-                let mut ret = loop {
-                    let tmp = it.next()?;
-                    if !tmp.is_space() {
-                        break vec![tmp];
+        let mut ret = VAN::new();
+        let mut it = args.into_iter();
+
+        'outer: loop {
+            let mut rpart = loop {
+                if let Some(x) = it.next() {
+                    if !x.is_space() {
+                        break vec![x];
                     }
-                };
-                while let Some(tmp) = it.peek() {
-                    if tmp.is_space() {
-                        break;
-                    }
-                    ret.push(it.next().unwrap());
+                } else {
+                    break 'outer;
                 }
-                let mut ret = ret.lift_ast().simplify();
-                if let Node::Grouped { ref mut typ, .. } = ret {
-                    if *typ == GroupType::Dissolving {
-                        // fix splitting of white-space separated arguments
-                        // bc dissolving would be inlined and expanded, we don't want that
-                        *typ = GroupType::Loose;
-                    }
+            };
+            while let Some(x) = it.next() {
+                if x.is_space() {
+                    // discard $x implicitly, but this doesn't matter
+                    // bc the loop above would skip it in the next round
+                    // regardless of that
+                    break;
                 }
-                Some(ret)
-            })
-            .collect()
+                rpart.push(x);
+            }
+            let mut res = rpart.lift_ast().simplify();
+            if let Node::Grouped { ref mut typ, .. } = res {
+                if *typ == GroupType::Dissolving {
+                    // fix splitting of white-space separated arguments
+                    // bc dissolving would be inlined and expanded, we don't want that
+                    *typ = GroupType::Loose;
+                }
+            }
+            ret.push(res);
+        }
+        CmdEvalArgs(ret)
     }
 }
 

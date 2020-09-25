@@ -366,17 +366,18 @@ fn blti_une(args: &[ASTNode]) -> Option<ASTNode> {
 }
 
 fn blti_unee(args: &[ASTNode]) -> Option<ASTNode> {
-    Some(
-        CmdEvalArgs::from_wsdelim(
-            args.iter()
-                .cloned()
-                .map(uneg)
-                .collect::<Vec<_>>()
-                .simplify(),
-        )
-        .0
-        .lift_ast(),
-    )
+    let mut ret = CmdEvalArgs::from_wsdelim(args.to_vec());
+    for i in ret.iter_mut() {
+        if let ASTNode::Grouped {
+            ref mut typ,
+            ref mut elems,
+        } = i
+        {
+            *typ = GroupType::Dissolving;
+            *elems = CmdEvalArgs::from_wsdelim(elems.take()).0;
+        }
+    }
+    Some(ret.simplify().0.lift_ast())
 }
 
 fn eval_args(args: &mut CmdEvalArgs, ctx: &mut EvalContext) {
