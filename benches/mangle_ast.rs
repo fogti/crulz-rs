@@ -1,6 +1,6 @@
 #![feature(test)]
 
-use crulz::ast::{Lift as _, Mangle as _, MangleExt as _, Node::*};
+use crulz::ast::{compact_toplevel, Lift as _, Mangle as _, Node::*};
 extern crate test;
 
 #[bench]
@@ -58,5 +58,5 @@ fn bench_compact_tl(b: &mut test::Bencher) {
         },
     ]
     .simplify();
-    b.iter(|| ast.clone().compact_toplevel());
+    b.iter(|| compact_toplevel(ast.clone()));
 }

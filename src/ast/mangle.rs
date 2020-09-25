@@ -1,13 +1,12 @@
 use super::{CmdEvalArgs, GroupType, Lift as _, Node as ASTNode, VAN};
-use bstr::ByteSlice;
 use delegate_attr::delegate;
 use itertools::Itertools;
 
 // do NOT "use ASTNode::*;" here, because sometimes we want to "use ASTNodeClass::*;"
 
 pub trait Mangle: Default {
-    /// transform this AST into a byte string
-    fn to_vec(self, escc: u8) -> Vec<u8>;
+    /// transform this AST into a byte string, outputs into `$f`
+    fn fmt(&self, f: &mut Vec<u8>, escc: u8);
 
     /// helper for [`Mangle::simplify`] and [`interp::eval`](crate::interp::eval)
     fn get_complexity(&self) -> usize;
@@ -41,45 +40,41 @@ pub trait Mangle: Default {
 }
 
 impl Mangle for ASTNode {
-    fn to_vec(self, escc: u8) -> Vec<u8> {
+    fn fmt(&self, f: &mut Vec<u8>, escc: u8) {
         use ASTNode::*;
         match self {
-            NullNode => Vec::new(),
-            Constant { data, .. } => data.into(),
+            NullNode => {}
+            Constant { data, .. } => f.extend_from_slice(&data[..]),
             Grouped { typ, elems } => {
-                let inner = elems.to_vec(escc);
-                if typ == GroupType::Strict {
-                    [b"(", &inner[..], b")"]
-                        .iter()
-                        .map(core::ops::Deref::deref)
-                        .flat_map(ByteSlice::bytes)
-                        .collect()
-                } else {
-                    inner
+                let parens = *typ == GroupType::Strict;
+                if parens {
+                    f.push(b'(');
+                }
+                elems.fmt(f, escc);
+                if parens {
+                    f.push(b')');
                 }
             }
-            Argument { indirection, index } => std::iter::repeat(b'$')
-                .take(indirection + 1)
-                .chain(index.map(|i| i.to_string()).iter().flat_map(|i| i.bytes()))
-                .collect(),
+            Argument { indirection, index } => {
+                f.extend(std::iter::repeat(b'$').take(indirection + 1));
+                if let Some(i) = index {
+                    f.extend_from_slice(i.to_string().as_bytes());
+                }
+            }
             CmdEval { cmd, args } => {
-                let mut ret = Vec::new();
-                ret.push(escc);
-                ret.push(b'(');
-                ret.extend_from_slice(&cmd.to_vec(escc)[..]);
-                ret.extend_from_slice(&args.to_vec(escc)[..]);
-                ret.push(b')');
-                ret
+                f.push(escc);
+                f.push(b'(');
+                cmd.fmt(f, escc);
+                args.fmt(f, escc);
+                f.push(b')');
             }
             Lambda { argc, body } => {
-                let mut ret = Vec::new();
-                ret.push(escc);
-                ret.extend_from_slice(b"(lambda ");
-                ret.extend_from_slice(argc.to_string().as_bytes());
-                ret.push(b' ');
-                ret.extend_from_slice(&body.to_vec(escc)[..]);
-                ret.push(b')');
-                ret
+                f.push(escc);
+                f.extend_from_slice(b"(lambda ");
+                f.extend_from_slice(argc.to_string().as_bytes());
+                f.push(b' ');
+                body.fmt(f, escc);
+                f.push(b')');
             }
         }
     }
@@ -226,8 +221,10 @@ impl Mangle for ASTNode {
 }
 
 impl Mangle for VAN {
-    fn to_vec(self, escc: u8) -> Vec<u8> {
-        self.into_iter().flat_map(|i| i.to_vec(escc)).collect()
+    fn fmt(&self, f: &mut Vec<u8>, escc: u8) {
+        for i in self {
+            i.fmt(f, escc);
+        }
     }
 
     #[inline]
@@ -305,17 +302,16 @@ impl Mangle for VAN {
 }
 
 impl Mangle for CmdEvalArgs {
-    fn to_vec(self, escc: u8) -> Vec<u8> {
-        self.0.into_iter().fold(Vec::new(), |mut acc, i| {
-            acc.push(b' ');
-            acc.extend_from_slice(&i.to_vec(escc)[..]);
-            acc
-        })
+    fn fmt(&self, f: &mut Vec<u8>, escc: u8) {
+        for i in &self.0 {
+            f.push(b' ');
+            i.fmt(f, escc);
+        }
     }
 
     fn simplify(self) -> Self {
         self.into_iter()
-            .map(|i| i.simplify())
+            .map(Mangle::simplify)
             .flat_map(|i| {
                 if let ASTNode::Grouped {
                     typ: GroupType::Dissolving,
@@ -343,8 +339,9 @@ impl Mangle for CmdEvalArgs {
 pub fn compact_toplevel(x: VAN) -> VAN {
     // we are at the top level, wo can inline non-strict groups
     // and then put all constants heaps into single constants
-    x.simplify()
-        .into_iter()
+    x.into_iter()
+        // 1. simplify
+        .map(Mangle::simplify)
         // 1. inline non-strict groups
         .flat_map(|i| match i {
             ASTNode::NullNode => vec![],

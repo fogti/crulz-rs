@@ -148,7 +148,8 @@ fn main() {
         return;
     }
 
-    let blob = trs.to_vec(pars_opts.escc);
+    let mut blob = Vec::new();
+    trs.fmt(&mut blob, pars_opts.escc);
     let blob = &*blob;
 
     if let Some(x) = opts.output.as_ref() {
