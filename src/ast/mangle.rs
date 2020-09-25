@@ -138,6 +138,7 @@ impl Mangle for ASTNode {
                     args.simplify_inplace();
                 }
                 Lambda { ref mut body, .. } => body.simplify_inplace(),
+                Constant { data, .. } if data.is_empty() => *this = NullNode,
                 _ => return false,
             }
             true
@@ -235,16 +236,7 @@ impl Mangle for VAN {
     fn simplify(self) -> Self {
         self.into_iter()
             .map(Mangle::simplify)
-            .filter(|i| match i {
-                ASTNode::Grouped { typ, elems }
-                    if elems.is_empty() && *typ != GroupType::Strict =>
-                {
-                    false
-                }
-                ASTNode::Constant { data, .. } if data.is_empty() => false,
-                ASTNode::NullNode => false,
-                _ => true,
-            })
+            .filter(|i| *i != ASTNode::NullNode)
             .peekable()
             .batching(|it| {
                 use ASTNode::*;
@@ -351,23 +343,40 @@ pub fn compact_toplevel(x: VAN) -> VAN {
         // 2. aggressive concat constant-after-constants
         .peekable()
         .batching(|it| {
-            let mut ret = it.next()?;
-            if let ASTNode::Constant {
-                non_space: ref mut rnsp,
-                data: ref mut rdat,
-            } = &mut ret
-            {
-                while let Some(ASTNode::Constant {
-                    non_space: nsp,
-                    data: ref dat,
-                }) = it.peek()
-                {
-                    *rnsp |= nsp;
-                    rdat.extend_from_slice(&dat[..]);
-                    it.next();
+            use ASTNode::*;
+            let mut base = it.next()?;
+            match &mut base {
+                Constant {
+                    non_space,
+                    ref mut data,
+                } => {
+                    while let Some(Constant {
+                        non_space: ins2,
+                        data: ref y,
+                    }) = it.peek()
+                    {
+                        *non_space |= ins2;
+                        data.extend_from_slice(&y[..]);
+                        it.next();
+                    }
                 }
+                Grouped {
+                    typ: GroupType::Dissolving,
+                    ref mut elems,
+                } => {
+                    while let Some(Grouped { typ, elems: ref y }) = it.peek() {
+                        if *typ != GroupType::Dissolving {
+                            break;
+                        }
+                        elems.extend_from_slice(&y[..]);
+                        it.next();
+                    }
+                    return Some(std::mem::take(elems));
+                }
+                _ => {}
             }
-            Some(ret)
+            Some(vec![base])
         })
+        .flatten()
         .collect()
 }
