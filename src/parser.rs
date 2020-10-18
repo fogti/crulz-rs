@@ -127,9 +127,9 @@ fn do_expect<'a>(origin: &'a [u8], rest: &'a [u8], c: u8) -> Result<&'a [u8], Er
 impl Parse for ASTNode {
     fn parse(data: &[u8], opts: Options) -> Result<(&[u8], Self), Error<'_>> {
         let escc = opts.escc;
-        let mut iter = data.iter();
+        let mut iter = data.bytes();
 
-        let i = *iter.next().ok_or_else(|| Error {
+        let i = iter.next().ok_or_else(|| Error {
             origin: data,
             offending: data,
             detail: PED::UnexpectedEof,
@@ -137,7 +137,7 @@ impl Parse for ASTNode {
         })?;
         match i {
             _ if i == escc => {
-                let i = *iter.next().ok_or_else(|| Error {
+                let i = iter.next().ok_or_else(|| Error {
                     origin: data,
                     offending: data,
                     detail: PED::UnexpectedEof,

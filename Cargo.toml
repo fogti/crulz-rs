@@ -12,20 +12,34 @@ license = "Apache-2.0"
 ansi_term = "0.12"
 anyhow = "1.0"
 atoi = "0.3"
-bincode = { version = "1.2", optional = true }
-bstr = { version = "0.2", default-features = false, features = ["serde1", "std"] }
 cfg-if = "0.1"
 codespan = "0.9"
 codespan-reporting = "0.9"
 delegate-attr = "0.2"
-flate2 = { version = "1.0", optional = true }
 gumdrop = "0.8"
 itertools = "0.9"
 lazy_static = "1.4"
 maplit = "1.0"
 readfilez = "0.2"
-serde = { version = "1.0", features = ["derive"] }
 thiserror = "1.0"
+
+[dependencies.bincode]
+version = "1.3"
+optional = true
+
+[dependencies.bstr]
+# we need at least that version for bstr::Bytes::as_slice
+version = "0.2.14"
+default-features = false
+features = [ "serde1", "std" ]
+
+[dependencies.flate2]
+version = "1.0"
+optional = true
+
+[dependencies.serde]
+version = "1.0"
+features = [ "derive" ]
 
 [features]
 default = [ "compile" ]
