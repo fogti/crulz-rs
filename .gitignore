@@ -1,7 +1,8 @@
-/target
 /docs/bench_results2.txt
 /flamegraph.svg
 /perf*
+/result
+/target
 /*.strace
 **/*.rs.bk
 **/.#*
