@@ -23,16 +23,16 @@
         "url": "https://github.com/NixOS/nixpkgs/archive/929768261a3ede470eafb58d5b819e1a848aa8bf.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
-    "nixpkgs-mozilla": {
+    "rust-overlay": {
         "branch": "master",
-        "description": "mozilla related nixpkgs (extends nixos/nixpkgs repo)",
+        "description": "Pure and reproducible nix overlay for binary distributed rust toolchains",
         "homepage": "",
-        "owner": "mozilla",
-        "repo": "nixpkgs-mozilla",
-        "rev": "8c007b60731c07dd7a052cce508de3bb1ae849b4",
-        "sha256": "1zybp62zz0h077zm2zmqs2wcg3whg6jqaah9hcl1gv4x8af4zhs6",
+        "owner": "oxalica",
+        "repo": "rust-overlay",
+        "rev": "86adca0acced4861f6908df3712fa86724081152",
+        "sha256": "08n3zj0mhlpxbikyv53iij7zdm2mwh7rh8y7nwgg5wsgpnydpkfh",
         "type": "tarball",
-        "url": "https://github.com/mozilla/nixpkgs-mozilla/archive/8c007b60731c07dd7a052cce508de3bb1ae849b4.tar.gz",
+        "url": "https://github.com/oxalica/rust-overlay/archive/86adca0acced4861f6908df3712fa86724081152.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     }
 }
