@@ -201,39 +201,37 @@ impl std::iter::FromIterator<Node> for CmdEvalArgs {
 impl CmdEvalArgs {
     /// constructs `CmdEvalArgs` from a `VAN` with white-space as arguments delimiter
     pub fn from_wsdelim(args: VAN) -> Self {
-        let mut ret = VAN::new();
         let mut it = args.into_iter();
 
-        'outer: loop {
-            let mut rpart = loop {
-                if let Some(x) = it.next() {
+        CmdEvalArgs(
+            std::iter::from_fn(move || {
+                let mut res = std::iter::once(loop {
+                    let x = it.next()?;
                     if !x.is_space() {
-                        break vec![x];
+                        break x;
                     }
-                } else {
-                    break 'outer;
-                }
-            };
-            while let Some(x) = it.next() {
-                if x.is_space() {
+                })
+                .chain(it.by_ref().take_while(|x| {
+                    // if the following returns false, then:
                     // discard $x implicitly, but this doesn't matter
                     // bc the loop above would skip it in the next round
                     // regardless of that
-                    break;
+                    !x.is_space()
+                }))
+                .collect::<Vec<_>>()
+                .lift_ast()
+                .simplify();
+                if let Node::Grouped { ref mut typ, .. } = res {
+                    if *typ == GroupType::Dissolving {
+                        // fix splitting of white-space separated arguments
+                        // bc dissolving would be inlined and expanded, we don't want that
+                        *typ = GroupType::Loose;
+                    }
                 }
-                rpart.push(x);
-            }
-            let mut res = rpart.lift_ast().simplify();
-            if let Node::Grouped { ref mut typ, .. } = res {
-                if *typ == GroupType::Dissolving {
-                    // fix splitting of white-space separated arguments
-                    // bc dissolving would be inlined and expanded, we don't want that
-                    *typ = GroupType::Loose;
-                }
-            }
-            ret.push(res);
-        }
-        CmdEvalArgs(ret)
+                Some(res)
+            })
+            .collect(),
+        )
     }
 }
 
