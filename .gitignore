@@ -2,6 +2,7 @@
 /flamegraph.svg
 /perf*
 /result
+/result-lib
 /target
 /*.strace
 **/*.rs.bk
