@@ -3,8 +3,13 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-20.09";
     flake-utils.url = "github:numtide/flake-utils";
+    # needed for default.nix, shell.nix
+    flake-compat = {
+      url = "github:edolstra/flake-compat";
+      flake = false;
+    };
   };
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, flake-compat }:
     let
       progname = "crulz";
       overlay = final: prev: {
