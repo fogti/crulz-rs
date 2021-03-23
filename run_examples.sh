@@ -6,10 +6,13 @@ if ! [ -x "$(which jq)" ]; then
 fi
 
 cd "$(dirname "$0")"
-cargo build --release || exit $?
-echo
 
-CRULZ="$(cargo metadata --format-version 1 | jq -r '.target_directory')/release/crulz"
+if [ -z "$CRULZ" ]; then
+  cargo build --release || exit $?
+  echo
+  CRULZ="$(cargo metadata --format-version 1 | jq -r '.target_directory')/release/crulz"
+fi
+
 if ! [ -x "$CRULZ" ]; then
   echo "run_examples.sh: crulz not found!"
   exit 1
