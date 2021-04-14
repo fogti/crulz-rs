@@ -13,6 +13,6 @@
     yz-flake-utils.lib.mkFlakeFromProg {
       prevpkgs = nixpkgs;
       progname = "crulz";
-      drvBuilder = final: prev: (final.pkgs.callPackage ./Cargo.nix {}).rootCrate.build;
+      drvBuilder = final: prev: (import ./Cargo.nix { pkgs = final; }).rootCrate.build;
     };
 }
