@@ -18,16 +18,16 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1617146108,
-        "narHash": "sha256-Y7ThcrI5BNbXEc8KAYlqcAYAtAl9btqcFaqzLCsslkw=",
+        "lastModified": 1620340338,
+        "narHash": "sha256-Op/4K0+Z9Sp5jtFH0s/zMM4H7VFZxrekcAmjQ6JpQ4w=",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "fe9aef0135d6496e2b2121c37217a57af78d4e69",
+        "rev": "63586475587d7e0e078291ad4b49b6f6a6885100",
         "type": "github"
       },
       "original": {
         "owner": "nixos",
-        "ref": "nixos-20.09",
+        "ref": "nixos-unstable",
         "repo": "nixpkgs",
         "type": "github"
       }
@@ -41,11 +41,11 @@
     },
     "yz-flake-utils": {
       "locked": {
-        "lastModified": 1616812917,
-        "narHash": "sha256-/4TjJDzjsTf5HNgM8dzK+m+3mU2/Y/V4rJ/WeI6yZJM=",
+        "lastModified": 1620602847,
+        "narHash": "sha256-IUwHDkdE6aKMTYbZVQOfgpGX/U8jHqIHTjRY9eT3aJA=",
         "owner": "YZITE",
         "repo": "flake-utils",
-        "rev": "a591deea197ab2d700124e2e4378e64381b555ab",
+        "rev": "8be1dd3b471eb9baaffbed7f014d9391069c3a8d",
         "type": "github"
       },
       "original": {

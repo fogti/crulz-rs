@@ -1,7 +1,7 @@
 {
   description = "a rust implementation of the 'crulz' macro language interpreter";
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-20.09";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     yz-flake-utils.url = "github:YZITE/flake-utils";
     # needed for default.nix, shell.nix
     flake-compat = {
